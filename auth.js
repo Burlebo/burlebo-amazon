@@ -119,6 +119,7 @@
     admin:    { name: 'Executive Admin',     password: 'Admin',      cls: 'admin'    },
     employee: { name: 'Employee',            password: 'Burlebo',    cls: 'employee' },
     brooks:   { name: 'Brooks Loria',        password: 'BL',         cls: 'employee' },
+    spencer:  { name: 'Assistant',           password: 'Spencer',    cls: 'coy'      },
   };
 
   // ---------------------------------------------------------------------------
@@ -152,6 +153,12 @@
     '/bgwhite.html':        { coy: 'edit',                   admin: 'edit', employee: 'edit', brooks: 'edit' },
     '/tools.html':          { coy: 'edit',                   admin: 'edit', employee: 'edit', brooks: 'edit' },
   };
+
+  // The Assistant (Spencer) mirrors Coy's page access exactly. Adding a page to
+  // Coy above automatically grants it to Spencer — no second list to maintain.
+  for (const path of Object.keys(ACCESS)) {
+    if (ACCESS[path].coy) ACCESS[path].spencer = ACCESS[path].coy;
+  }
 
   // Human-readable page names — matches the labels in nav.html so the
   // denied panel's "you can access" list reads naturally.
@@ -416,6 +423,7 @@
             <button class="auth-option" data-role="admin">    <span class="dot admin"></span>    Executive Admin     </button>
             <button class="auth-option" data-role="employee"> <span class="dot employee"></span> Employee            </button>
             <button class="auth-option" data-role="brooks">    <span class="dot employee"></span> Brooks Loria        </button>
+            <button class="auth-option" data-role="spencer">  <span class="dot coy"></span>      Assistant           </button>
           </div>
           <div class="auth-pw" id="auth-pw-field">
             <input id="auth-pw-input" type="password" placeholder="Enter password" autocomplete="current-password">
