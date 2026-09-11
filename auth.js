@@ -1,10 +1,10 @@
 // =============================================================================
-// auth.js — Shared 4-role authentication for the Burlebo Analytics dashboard
+// auth.js — Shared role-based authentication for the Burlebo Analytics dashboard
 // -----------------------------------------------------------------------------
 // Load early in every dashboard page:  <script src="/auth.js"></script>
 //
 // What this does:
-//   1. Defines the 4 roles + their passwords + the page-access matrix.
+//   1. Defines the roles + their passwords + the page-access matrix.
 //   2. Persists the chosen role in sessionStorage so logging in once on any
 //      page carries across all dashboard pages until the browser closes.
 //   3. Injects the role-pick modal + denied panel HTML so individual pages
@@ -116,8 +116,6 @@
   const ROLES = {
     coy:      { name: 'Coy Needham (Owner)', password: 'coyneedham', cls: 'coy'      },
     designer: { name: 'Graphic Designer',    password: 'Graphic',    cls: 'designer' },
-    admin:    { name: 'Executive Admin',     password: 'Admin',      cls: 'admin'    },
-    employee: { name: 'Employee',            password: 'Burlebo',    cls: 'employee' },
     brooks:   { name: 'Brooks Loria',        password: 'BL',         cls: 'employee' },
     spencer:  { name: 'Assistant',           password: 'Spencer',    cls: 'coy'      },
   };
@@ -131,27 +129,27 @@
   // For paths, we normalize: '/' → '/index.html', strip trailing slashes.
   // ---------------------------------------------------------------------------
   const ACCESS = {
-    '/index.html':          { coy: 'edit', designer: 'edit'                                 }, // Tracker
-    '/dashboard.html':      { coy: 'edit',                   admin: 'edit'                   },
-    '/todo.html':           { coy: 'edit'                                                    },
-    '/settings.html':       { coy: 'edit'                                                    },
-    '/upload.html':         { coy: 'edit',                   admin: 'edit'                   },
-    '/inventory.html':      { coy: 'edit',                   admin: 'edit', employee: 'edit', brooks: 'edit' },
-    '/shipment.html':       { coy: 'edit',                   admin: 'edit', employee: 'edit', brooks: 'edit' },
-    '/analytics.html':      { coy: 'edit',                   admin: 'edit', employee: 'edit' },
-    '/sku.html':            { coy: 'edit',                   admin: 'edit', employee: 'edit' },
-    '/snapshot.html':       { coy: 'edit',                   admin: 'edit'                   },
-    '/goal.html':           { coy: 'edit',                   admin: 'edit'                   },
-    '/ads.html':            { coy: 'edit',                   admin: 'edit'                   },
-    '/cannibalization.html':{ coy: 'edit',                   admin: 'edit'                   },
-    '/profit.html':         { coy: 'edit',                   admin: 'edit'                   },
-    '/report.html':         { coy: 'edit',                   admin: 'edit'                   },
-    '/lookout.html':        { coy: 'edit',                   admin: 'edit', brooks: 'edit' },
-    '/planner.html':        { coy: 'edit',                   admin: 'edit'                   },
-    '/audit.html':          { coy: 'edit',                   admin: 'edit', brooks: 'edit' },
-    '/boxcontent.html':     { coy: 'edit',                   admin: 'edit', employee: 'edit', brooks: 'edit' },
-    '/bgwhite.html':        { coy: 'edit',                   admin: 'edit', employee: 'edit', brooks: 'edit' },
-    '/tools.html':          { coy: 'edit',                   admin: 'edit', employee: 'edit', brooks: 'edit' },
+    '/index.html':          { coy: 'edit', designer: 'edit' }, // Tracker
+    '/dashboard.html':      { coy: 'edit' },
+    '/todo.html':           { coy: 'edit' },
+    '/settings.html':       { coy: 'edit' },
+    '/upload.html':         { coy: 'edit' },
+    '/inventory.html':      { coy: 'edit', brooks: 'edit' },
+    '/shipment.html':       { coy: 'edit', brooks: 'edit' },
+    '/analytics.html':      { coy: 'edit' },
+    '/sku.html':            { coy: 'edit' },
+    '/snapshot.html':       { coy: 'edit' },
+    '/goal.html':           { coy: 'edit' },
+    '/ads.html':            { coy: 'edit' },
+    '/cannibalization.html':{ coy: 'edit' },
+    '/profit.html':         { coy: 'edit' },
+    '/report.html':         { coy: 'edit' },
+    '/lookout.html':        { coy: 'edit', brooks: 'edit' },
+    '/planner.html':        { coy: 'edit' },
+    '/audit.html':          { coy: 'edit', brooks: 'edit' },
+    '/boxcontent.html':     { coy: 'edit', brooks: 'edit' },
+    '/bgwhite.html':        { coy: 'edit', brooks: 'edit' },
+    '/tools.html':          { coy: 'edit', brooks: 'edit' },
   };
 
   // The Assistant (Spencer) mirrors Coy's page access exactly. Adding a page to
@@ -420,8 +418,6 @@
           <div class="auth-options" id="auth-role-options">
             <button class="auth-option" data-role="coy">      <span class="dot coy"></span>      Coy Needham (Owner) </button>
             <button class="auth-option" data-role="designer"> <span class="dot designer"></span> Graphic Designer    </button>
-            <button class="auth-option" data-role="admin">    <span class="dot admin"></span>    Executive Admin     </button>
-            <button class="auth-option" data-role="employee"> <span class="dot employee"></span> Employee            </button>
             <button class="auth-option" data-role="brooks">    <span class="dot employee"></span> Brooks Loria        </button>
             <button class="auth-option" data-role="spencer">  <span class="dot coy"></span>      Assistant           </button>
           </div>
