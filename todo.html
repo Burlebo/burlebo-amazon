@@ -214,7 +214,7 @@
   <div id="todo-view" style="display:none;">
     <div class="stats-row" id="todo-stats"></div>
 
-    <div class="add-form">
+    <div class="add-form" id="todo-add-form">
       <input type="text" id="todo-input" placeholder="Add a task..." onkeydown="if(event.key==='Enter')addTodo()" />
       <select id="todo-cat-select">
         <option value="General">📋 General</option>
@@ -280,8 +280,12 @@
       // Coy gets an owner switcher so he can look at Spencer's list.
       if (r === 'coy') renderOwnerSwitcher();
 
+      // The add-task composer is Coy-only.
+      const addForm = document.getElementById('todo-add-form');
+      if (addForm) addForm.style.display = canManage() ? '' : 'none';
+
       await loadTodos();
-      document.getElementById('todo-input').focus();
+      if (canManage()) document.getElementById('todo-input').focus();
     } else {
       document.getElementById('todo-view').style.display = 'none';
       document.getElementById('locked-view').style.display = 'block';
@@ -299,6 +303,10 @@
   const OWNER_LABELS = { coy: 'Coy', spencer: 'Spencer' };
 
   let _me = null;        // who is logged in
+
+  // Only Coy creates or removes tasks. The Assistant works the list he's given:
+  // check items off and add notes, but can't add, delete, or clear.
+  function canManage() { return _me === 'coy'; }
   let _viewOwner = null; // whose list is on screen (Coy can switch)
   let _todos = [];       // in-memory cache of the current owner's tasks
 
@@ -317,6 +325,7 @@
     if (_me === 'coy' && _viewOwner !== 'coy') {
       return `Viewing ${OWNER_LABELS[_viewOwner]}'s task list`;
     }
+    if (!canManage()) return 'Your assigned tasks — check them off as you go';
     return 'Personal task list — synced across your devices';
   }
 
@@ -357,6 +366,7 @@
   }
 
   async function addTodo() {
+    if (!canManage()) return;
     const input = document.getElementById('todo-input');
     const title = input.value.trim();
     if (!title) { input.focus(); return; }
@@ -393,6 +403,7 @@
   }
 
   async function deleteTodo(id) {
+    if (!canManage()) return;
     const keep = _todos.filter(t => String(t.id) !== String(id));
     const removed = _todos.filter(t => String(t.id) === String(id));
     _todos = keep;          // optimistic
@@ -422,6 +433,7 @@
   }
 
   async function clearDone() {
+    if (!canManage()) return;
     const doneRows = _todos.filter(t => t.done);
     if (doneRows.length === 0) return;
     if (!confirm(`Remove ${doneRows.length} completed task${doneRows.length===1?'':'s'}?`)) return;
@@ -477,7 +489,7 @@
         ${count > 0 ? `<span class="cat-count">${count}</span>` : ''}
       </button>`;
     }
-    html += '<button class="btn ghost sm clear-btn" onclick="clearDone()">🗑️ Clear Completed</button>';
+    if (canManage()) html += '<button class="btn ghost sm clear-btn" onclick="clearDone()">🗑️ Clear Completed</button>';
     document.getElementById('todo-sidebar').innerHTML = html;
   }
 
@@ -524,7 +536,7 @@
           <div class="todo-note" id="note-${t.id}" onclick="editNote(${t.id})">${noteDisplay}</div>
         </div>
         <div class="todo-actions">
-          <button class="todo-del" onclick="deleteTodo(${t.id})" title="Delete">✕</button>
+          ${canManage() ? `<button class="todo-del" onclick="deleteTodo(${t.id})" title="Delete">✕</button>` : ''}
         </div>
       </div>`;
     }
