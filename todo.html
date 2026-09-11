@@ -172,7 +172,17 @@
   .locked .lock-icon { font-size: 48px; margin-bottom: 12px; }
   .locked h2 { font-size: 18px; font-weight: 600; margin: 0 0 6px 0; }
   .locked p { font-size: 14px; color: var(--text-dim); margin: 0; max-width: 420px; margin: 0 auto; line-height: 1.5; }
+  /* Owner switcher — Coy only, lets him view Spencer's list */
+  #todo-owner-switch { display: none; gap: 8px; margin: 12px 0 4px; }
+  .owner-btn {
+    padding: 6px 14px; border-radius: var(--radius-sm); font-family: inherit;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    border: 1px solid var(--border); background: transparent; color: var(--text-dim);
+  }
+  .owner-btn:hover { background: var(--panel-2); color: var(--text); }
+  .owner-btn.active { background: var(--panel-2); border-color: var(--accent); color: var(--text); }
 </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="/auth.js"></script>
 </head>
 <body>
@@ -188,7 +198,8 @@
 
 <main id="app-main" class="hidden">
   <div class="page-title">To-Do</div>
-  <div class="page-sub" id="todo-sub">Personal task list — stored in your browser only</div>
+  <div class="page-sub" id="todo-sub">Personal task list</div>
+  <div id="todo-owner-switch"></div>
 
   <!-- Locked view (non-Coy) -->
   <div id="locked-view" style="display:none;">
@@ -255,15 +266,21 @@
   // Role auth
   // ============================================================================
 
-  window.onAuthReady = function (r) {
+  window.onAuthReady = async function (r) {
     loadSharedNav();
 
-    // Coy-only gate
-    if (r === 'coy') {
+    // Owners of a personal list: Coy and the Assistant (Spencer).
+    if (r === 'coy' || r === 'spencer') {
+      _me = r;
+      _viewOwner = r;
       document.getElementById('todo-view').style.display = 'block';
       document.getElementById('locked-view').style.display = 'none';
-      document.getElementById('todo-sub').textContent = 'Personal task list — stored in your browser only';
-      renderAll();
+      document.getElementById('todo-sub').textContent = 'Loading tasks…';
+
+      // Coy gets an owner switcher so he can look at Spencer's list.
+      if (r === 'coy') renderOwnerSwitcher();
+
+      await loadTodos();
       document.getElementById('todo-input').focus();
     } else {
       document.getElementById('todo-view').style.display = 'none';
@@ -273,9 +290,18 @@
   };
 
   // ============================================================================
-  // To-Do state — localStorage
+  // To-Do state — Supabase (table: todos), scoped by owner
   // ============================================================================
-  const TODO_KEY = 'burlebo_todos';
+  const SUPABASE_URL = 'https://uoetojuyzyngfopsmmxk.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvZXRvanV5enluZ2ZvcHNtbXhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzODY3ODIsImV4cCI6MjA5NDk2Mjc4Mn0.FVhs_0waTWIYkTVY2j4HERhlovggIFau07RuBu69M8E';
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  const OWNER_LABELS = { coy: 'Coy', spencer: 'Spencer' };
+
+  let _me = null;        // who is logged in
+  let _viewOwner = null; // whose list is on screen (Coy can switch)
+  let _todos = [];       // in-memory cache of the current owner's tasks
+
   const CATEGORIES = ['General', 'Inventory', 'Ads', 'Listings', 'Shipping', 'Finance', 'Agency'];
   const CAT_ICONS = { General:'📋', Inventory:'📦', Ads:'📣', Listings:'🛍️', Shipping:'🚚', Finance:'💰', Agency:'💼' };
   const CAT_COLORS = {
@@ -284,44 +310,95 @@
   };
   let _filter = 'All';
 
-  function getTodos() {
-    try { return JSON.parse(localStorage.getItem(TODO_KEY)) || []; }
-    catch (e) { return []; }
-  }
-  function saveTodos(todos) {
-    localStorage.setItem(TODO_KEY, JSON.stringify(todos));
+  // Render code stays synchronous — it reads this cache.
+  function getTodos() { return _todos; }
+
+  function subLabel() {
+    if (_me === 'coy' && _viewOwner !== 'coy') {
+      return `Viewing ${OWNER_LABELS[_viewOwner]}'s task list`;
+    }
+    return 'Personal task list — synced across your devices';
   }
 
-  function addTodo() {
+  async function loadTodos() {
+    try {
+      const { data, error } = await sb
+        .from('todos')
+        .select('*')
+        .eq('owner', _viewOwner)
+        .order('created', { ascending: false });
+      if (error) throw error;
+      _todos = data || [];
+      document.getElementById('todo-sub').textContent = subLabel();
+    } catch (e) {
+      console.error('loadTodos', e);
+      _todos = [];
+      document.getElementById('todo-sub').textContent = 'Could not load tasks — check your connection and refresh.';
+    }
+    renderAll();
+  }
+
+  // Coy-only: switch between his list and Spencer's.
+  function renderOwnerSwitcher() {
+    const host = document.getElementById('todo-owner-switch');
+    if (!host) return;
+    host.style.display = 'flex';
+    host.innerHTML = Object.keys(OWNER_LABELS).map(o =>
+      `<button class="owner-btn ${o === _viewOwner ? 'active' : ''}" onclick="switchOwner('${o}')">${OWNER_LABELS[o]}'s list</button>`
+    ).join('');
+  }
+
+  async function switchOwner(o) {
+    if (o === _viewOwner) return;
+    _viewOwner = o;
+    renderOwnerSwitcher();
+    document.getElementById('todo-sub').textContent = 'Loading tasks…';
+    await loadTodos();
+  }
+
+  async function addTodo() {
     const input = document.getElementById('todo-input');
     const title = input.value.trim();
     if (!title) { input.focus(); return; }
     const cat = document.getElementById('todo-cat-select').value;
     const priority = document.getElementById('todo-priority-select').value;
-    const todos = getTodos();
-    todos.unshift({
-      id: Date.now() + Math.random(),
+    const row = {
+      owner: _viewOwner,
       title, cat, priority,
       done: false, note: '',
       created: new Date().toISOString(),
-    });
-    saveTodos(todos);
+    };
     input.value = '';
-    renderAll();
     input.focus();
+    try {
+      const { data, error } = await sb.from('todos').insert(row).select().single();
+      if (error) throw error;
+      _todos.unshift(data);
+      renderAll();
+    } catch (e) {
+      console.error('addTodo', e);
+      alert('Could not save that task. Check your connection and try again.');
+      input.value = title;
+    }
   }
 
-  function toggleTodo(id) {
-    const todos = getTodos();
-    const t = todos.find(t => t.id === id);
-    if (t) t.done = !t.done;
-    saveTodos(todos);
+  async function toggleTodo(id) {
+    const t = _todos.find(t => String(t.id) === String(id));
+    if (!t) return;
+    const next = !t.done;
+    t.done = next;          // optimistic
     renderAll();
+    const { error } = await sb.from('todos').update({ done: next }).eq('id', t.id);
+    if (error) { console.error('toggleTodo', error); t.done = !next; renderAll(); }
   }
 
-  function deleteTodo(id) {
-    saveTodos(getTodos().filter(t => t.id !== id));
+  async function deleteTodo(id) {
+    const keep = _todos.filter(t => String(t.id) !== String(id));
+    const removed = _todos.filter(t => String(t.id) === String(id));
+    _todos = keep;          // optimistic
     renderAll();
+    const { error } = await sb.from('todos').delete().eq('id', id);
+    if (error) { console.error('deleteTodo', error); _todos = _todos.concat(removed); renderAll(); }
   }
 
   function editNote(id) {
@@ -334,20 +411,25 @@
     noteEl.innerHTML = `<input type="text" value="${current}" onblur="saveNote('${id}',this.value)" onkeydown="if(event.key==='Enter')this.blur()" />`;
     noteEl.querySelector('input').focus();
   }
-  function saveNote(id, val) {
-    const todos = getTodos();
-    const t = todos.find(t => String(t.id) === String(id));
-    if (t) t.note = String(val || '').trim();
-    saveTodos(todos);
+  async function saveNote(id, val) {
+    const t = _todos.find(t => String(t.id) === String(id));
+    if (!t) return;
+    const note = String(val || '').trim();
+    t.note = note;          // optimistic
     renderAll();
+    const { error } = await sb.from('todos').update({ note }).eq('id', t.id);
+    if (error) { console.error('saveNote', error); }
   }
 
-  function clearDone() {
-    const done = getTodos().filter(t => t.done).length;
-    if (done === 0) return;
-    if (!confirm(`Remove ${done} completed task${done===1?'':'s'}?`)) return;
-    saveTodos(getTodos().filter(t => !t.done));
+  async function clearDone() {
+    const doneRows = _todos.filter(t => t.done);
+    if (doneRows.length === 0) return;
+    if (!confirm(`Remove ${doneRows.length} completed task${doneRows.length===1?'':'s'}?`)) return;
+    const ids = doneRows.map(t => t.id);
+    _todos = _todos.filter(t => !t.done);   // optimistic
     renderAll();
+    const { error } = await sb.from('todos').delete().in('id', ids);
+    if (error) { console.error('clearDone', error); await loadTodos(); }
   }
 
   function setCatFilter(cat) {
