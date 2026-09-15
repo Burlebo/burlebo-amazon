@@ -303,7 +303,7 @@
   <div id="denied-panel" class="access-denied" style="display:none;">
     <div class="icon">🔒</div>
     <h3>Upload restricted</h3>
-    <p>Only Coy or Admin can upload daily files.</p>
+    <p>Only Coy or the Assistant can upload daily files.</p>
   </div>
 
 </main>
@@ -346,7 +346,7 @@
   window.onAuthReady = function (r) {
     loadSharedNav();
 
-    if (r === 'coy' || r === 'admin') {
+    if (r === 'coy' || r === 'spencer') {
       document.getElementById('upload-panel').style.display = 'block';
       document.getElementById('denied-panel').style.display = 'none';
       initUpload();
