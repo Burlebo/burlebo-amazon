@@ -482,7 +482,7 @@
     const needsGs = uni.filter(g => { const r = aplus[g]; return !(r && r.done) && !(r && r.not_selling); });
     const doneGs  = uni.filter(g => { const r = aplus[g]; return r && r.done; });
     const nsGs    = uni.filter(g => { const r = aplus[g]; return r && r.not_selling && !r.done; });
-    const isCoy = ROLE === 'coy';
+    const isCoy = (ROLE === 'coy' || ROLE === 'spencer');
 
     let html = `<div class="vhead"><div><h2>${done ? 'A+ Content Done' : 'Needs A+ Content'}</h2>
       <p class="hint">A+ content is set per product group.</p></div>
