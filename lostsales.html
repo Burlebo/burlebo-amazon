@@ -245,10 +245,11 @@
   // ==========================================================================
   const CFG = {
     MIN_SESSIONS_TO_JUDGE: 5,   // below this, a zero-unit day is just noise
-    HEALTHY_BB: 0.90,           // at/above this we consider the offer held
+    HEALTHY_BB: 0.90,           // at/above this the offer counts as held, for baselines
     MIN_HEALTHY_DAYS: 10,       // days needed for a trustworthy per-ASIN CVR
     MAX_CVR: 0.40,              // sanity ceiling; above this is a data artifact
-    BB_LOSS_FLOOR: 0.90,        // below this, count the gap as lost opportunity
+    BB_LOSS_FLOOR: 0.85,        // only investigate featured-offer loss below this
+    BB_DEFICIT_MIN: 0.25,       // and only when conversion is >=25% below baseline
   };
 
   const fmtUSD = n => '$' + Math.round(n).toLocaleString();
@@ -403,10 +404,20 @@
           d.lost = d.sessions * a.cvr;
           a.grossUnits += d.lost;
         } else if (d.bb != null && d.bb < CFG.BB_LOSS_FLOOR) {
-          d.state = 'buybox';
-          a.bbDays++;
-          d.lost = d.sessions * (1 - d.bb) * a.cvr;
-          a.bbUnits += d.lost;
+          // Losing the featured offer does NOT by itself mean losing sales — you
+          // often still convert, and on dual-offer ASINs your own FBA and MFN
+          // listings trade it between themselves. So only count a real shortfall
+          // in conversion against this ASIN's own baseline.
+          const actual = d.units / d.sessions;
+          const deficit = a.cvr - actual;
+          if (deficit > 0 && deficit >= a.cvr * CFG.BB_DEFICIT_MIN) {
+            d.state = 'buybox';
+            a.bbDays++;
+            d.lost = d.sessions * deficit;
+            a.bbUnits += d.lost;
+          } else {
+            d.state = 'healthy';
+          }
         } else {
           d.state = 'healthy';
         }
@@ -443,6 +454,7 @@
       out.push({
         asin: a.asin, title: a.title, cvr: a.cvr, cvrSrc: a.cvrSrc, asp: a.asp,
         stockoutDays: a.stockoutDays, bbDays: a.bbDays, lostSessions: a.lostSessions,
+        avgBb: (() => { const v=a.days.filter(d=>d.bb!=null).map(d=>d.bb); return v.length?median(v):null; })(),
         gross: a.grossUnits, offset: a.offset, bbUnits: a.bbUnits,
         net, lostRevenue: net * a.asp,
         lastState: a.days.length ? a.days[a.days.length - 1].state : null,
@@ -497,7 +509,7 @@
       <table>
         <thead><tr>
           <th>Product</th><th>ASIN</th>
-          <th class="r">OOS days</th><th class="r">BB days</th>
+          <th class="r">OOS days</th><th class="r">BB days</th><th class="r">Med. BB%</th>
           <th class="r">Lost sessions</th><th class="r">CVR</th>
           <th class="r">Gross units</th><th class="r">Offset</th>
           <th class="r">Net units</th><th class="r">Lost revenue</th>
@@ -507,6 +519,7 @@
           <td class="mono">${r.asin}</td>
           <td class="r">${r.stockoutDays || '—'}</td>
           <td class="r">${r.bbDays || '—'}</td>
+          <td class="r">${r.avgBb == null ? '—' : pct(r.avgBb)}</td>
           <td class="r">${fmtN(r.lostSessions)}</td>
           <td class="r">${pct(r.cvr)}</td>
           <td class="r">${fmtN(r.gross)}</td>
@@ -524,7 +537,11 @@
         Baseline conversion uses healthy days only (offer held, ${CFG.MIN_SESSIONS_TO_JUDGE}+ sessions, units sold);
         ASINs with fewer than ${CFG.MIN_HEALTHY_DAYS} such days fall back to a style-level rate, then the
         catalog median (${pct(res.catalogCvr)}) — the table flags which was used.
-        Featured-offer loss is sessions × (1 − Buy Box %) × conversion.
+        Featured-offer loss is measured, not assumed: only on days below ${pct(CFG.BB_LOSS_FLOOR)} Buy Box
+        <i>and</i> where actual conversion came in at least ${pct(CFG.BB_DEFICIT_MIN)} under this ASIN's own
+        baseline, counted as sessions × the shortfall. Losing the featured offer while still converting
+        normally records nothing — which matters on ASINs carrying both an FBA and an MFN offer, where the
+        two trade it between themselves.
         Substitution offset credits back units that other sizes or colorways in the same parent picked up
         above their own baseline on those days, capped at the amount lost.
         Days outside an ASIN's live window and days under ${CFG.MIN_SESSIONS_TO_JUDGE} sessions are excluded,
