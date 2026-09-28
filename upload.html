@@ -786,11 +786,14 @@
         parent_asin: r['(Parent) ASIN'] || '',
         child_asin:  r['(Child) ASIN']  || '',
         title:       r['Title']         || '',
-        sessions:    Math.round(parseNumber(r['Sessions - Total']) + parseNumber(r['Sessions - Total - B2B'])),
-        page_views:  Math.round(parseNumber(r['Page Views - Total']) + parseNumber(r['Page Views - Total - B2B'])),
+        // Amazon's "Total" columns already INCLUDE B2B (the "- B2B" columns are a
+        // subset of them), so read the totals only. Adding the B2B columns on top
+        // double-counted every B2B sale, session and page view.
+        sessions:    Math.round(parseNumber(r['Sessions - Total'])),
+        page_views:  Math.round(parseNumber(r['Page Views - Total'])),
         buy_box_pct: parseNumber(r['Featured Offer (Buy Box) Percentage']) / 100,
-        units:       Math.round(parseNumber(r['Units Ordered']) + parseNumber(r['Units Ordered - B2B'])),
-        revenue:     parseNumber(r['Ordered Product Sales']) + parseNumber(r['Ordered Product Sales - B2B']),
+        units:       Math.round(parseNumber(r['Units Ordered'])),
+        revenue:     parseNumber(r['Ordered Product Sales']),
         upload_id:   uploadId,
       });
     }
