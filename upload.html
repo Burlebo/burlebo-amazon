@@ -163,6 +163,11 @@
   }
   .uploads-table tr:last-child td { border-bottom: none; }
   .uploads-table .empty { text-align: center; color: var(--text-dim); padding: 24px; }
+  .uploads-table td.actions { text-align: right; white-space: nowrap; }
+  .btn.sm { padding: 4px 10px; font-size: 12px; }
+  .btn.danger { background: transparent; border-color: rgba(248, 113, 113, 0.45); color: var(--red); }
+  .btn.danger:hover { background: rgba(248, 113, 113, 0.12); }
+  .uploads-table tr.deleting td { opacity: 0.45; }
 
   .badge {
     display: inline-block;
@@ -1222,21 +1227,106 @@
     const typeLabels = { sales: 'Sales', ad: 'Ad', fba: 'FBA Inventory', blb: 'BURLEBO Inventory', shipment_sent: 'Shipment Sent' };
     container.innerHTML = `
       <table class="uploads-table">
-        <thead><tr><th>Type</th><th>For date</th><th>File</th><th>Rows</th><th>Status</th><th>Uploaded</th></tr></thead>
+        <thead><tr><th>Type</th><th>For date</th><th>File</th><th>Rows</th><th>Status</th><th>Uploaded</th><th></th></tr></thead>
         <tbody>
           ${data.map(u => `
-            <tr>
+            <tr id="upload-row-${u.id}">
               <td><span class="badge ${u.file_type}">${typeLabels[u.file_type] || u.file_type}</span></td>
               <td>${u.detected_date ? formatDate(u.detected_date) : '<span style="color:var(--text-dim)">snapshot</span>'}</td>
               <td style="color:var(--text-dim); font-size:12px;">${u.filename}</td>
               <td>${(u.row_count || 0).toLocaleString()}</td>
               <td><span class="badge ${u.status === 'done' ? 'done' : u.status === 'error' ? 'error' : ''}">${u.status}</span></td>
               <td style="color:var(--text-dim);">${timeAgo(u.uploaded_at)}</td>
+              <td class="actions">${deleteButton(u)}</td>
             </tr>
           `).join('')}
         </tbody>
       </table>
+      <div id="delete-status" class="status"></div>
     `;
+  }
+
+  // ============================================================================
+  // Delete an upload
+  // Sales and Ad uploads tag every row with upload_id, so deleting removes
+  // exactly the rows that upload added (nothing else for that date).
+  // Snapshot uploads (FBA, BURLEBO) and Shipment Sent rows are not linked to
+  // an upload, so only their log entry can be removed, and only if it failed.
+  // ============================================================================
+  const DATA_TABLE = { sales: 'sales_daily', ad: 'ad_daily' };
+
+  function deleteButton(u) {
+    if (DATA_TABLE[u.file_type]) {
+      return `<button class="btn sm danger" onclick="deleteUpload(${u.id})">Delete</button>`;
+    }
+    if (u.status === 'error' || u.status === 'pending') {
+      return `<button class="btn sm ghost" onclick="deleteUpload(${u.id})" title="Remove this failed upload from the list">Remove</button>`;
+    }
+    return '';
+  }
+
+  async function deleteUpload(id) {
+    const statusEl = document.getElementById('delete-status');
+    const rowEl = document.getElementById('upload-row-' + id);
+    statusEl.className = 'status'; statusEl.textContent = '';
+
+    const { data: u, error: getErr } = await sb.from('uploads').select('*').eq('id', id).single();
+    if (getErr || !u) {
+      statusEl.className = 'status err';
+      statusEl.textContent = 'Could not load that upload: ' + (getErr ? getErr.message : 'not found');
+      return;
+    }
+
+    const table = DATA_TABLE[u.file_type];
+    let liveRows = 0;
+    if (table) {
+      const { count, error: cErr } = await sb.from(table)
+        .select('*', { count: 'exact', head: true }).eq('upload_id', id);
+      if (cErr) {
+        statusEl.className = 'status err';
+        statusEl.textContent = 'Could not count rows: ' + cErr.message;
+        return;
+      }
+      liveRows = count ?? 0;
+    }
+
+    const label = u.file_type === 'sales' ? 'sales' : 'ad';
+    const when = u.detected_date ? formatDate(u.detected_date) : 'this upload';
+    const msg = !table
+      ? `Remove the failed upload "${u.filename}" from the list?`
+      : liveRows > 0
+        ? `Delete ${liveRows.toLocaleString()} ${label} rows for ${when} from "${u.filename}"?\n\n` +
+          `${when} will have no ${label} data until you upload the correct file for it. This cannot be undone.`
+        : `This upload's rows were already replaced by a later upload, so no data will change.\n\nRemove "${u.filename}" from the list?`;
+    if (!confirm(msg)) return;
+
+    if (rowEl) rowEl.classList.add('deleting');
+    statusEl.textContent = 'Deleting…';
+
+    if (table && liveRows > 0) {
+      const { error: dErr } = await sb.from(table).delete().eq('upload_id', id);
+      if (dErr) {
+        if (rowEl) rowEl.classList.remove('deleting');
+        statusEl.className = 'status err';
+        statusEl.textContent = 'Delete failed, nothing was removed: ' + dErr.message;
+        return;
+      }
+    }
+
+    const { error: uErr } = await sb.from('uploads').delete().eq('id', id);
+    if (uErr) {
+      statusEl.className = 'status err';
+      statusEl.textContent = (liveRows > 0 ? `Data rows deleted, but the log entry could not be removed: ` : 'Could not remove the log entry: ') + uErr.message;
+      loadRecentUploads();
+      return;
+    }
+
+    await loadRecentUploads();
+    const s2 = document.getElementById('delete-status');
+    s2.className = 'status ok';
+    s2.textContent = liveRows > 0
+      ? `✓ Deleted ${liveRows.toLocaleString()} ${label} rows for ${when}. Upload the correct file for that date to restore it.`
+      : '✓ Removed from the list.';
   }
 </script>
 
