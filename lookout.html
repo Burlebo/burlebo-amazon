@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="/auth.js"></script>
 <style>
   :root {
@@ -75,6 +76,23 @@
   tr:last-child td { border-bottom: none; }
   tbody tr:hover { background: rgba(255,255,255,0.02); }
   .group-spacer td { background: var(--bg); padding: 4px 0; border: none; }
+  .group-hdr td { background: var(--panel-2); font-size: 11px; color: var(--text-dim); font-weight: 600; padding: 6px 12px; }
+  .group-hdr td .btn { font-size: 11px; padding: 3px 9px; float: right; }
+  tr.picked td { background: rgba(255,107,53,0.07); }
+  td.chk { width: 30px; padding-right: 0; }
+  td.chk input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+  .qty { width: 72px; padding: 5px 7px; text-align: right; font-family: inherit; font-size: 13px; font-weight: 700;
+         background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+  .qty:focus { outline: none; border-color: var(--accent); }
+  .qty.over { border-color: var(--red); color: var(--red); }
+  .x { background: none; border: 0; color: var(--text-dim); cursor: pointer; font-size: 15px; padding: 0 4px; }
+  .x:hover { color: var(--red); }
+  .ship-empty { padding: 34px 16px; text-align: center; color: var(--text-dim); font-size: 13px; line-height: 1.5; }
+  .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn-row .btn { font-size: 12px; padding: 5px 10px; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .ship-note { font-size: 12px; color: var(--text-dim); padding: 8px 12px; border-top: 1px solid var(--border); }
+  .ship-note.warn { color: var(--red); }
 
   .empty { text-align: center; padding: 60px 20px; color: var(--text-dim); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
   .empty-icon { font-size: 36px; margin-bottom: 8px; }
@@ -115,7 +133,7 @@
 
 <main id="app-main" class="hidden">
   <div class="page-title">FBA Lookout</div>
-  <div class="page-sub">Non-FBA styles already selling well enough — and with enough HQ stock — to launch on FBA</div>
+  <div class="page-sub">Non-FBA styles already selling well enough — and with enough HQ stock — to launch on FBA. Pick SKUs from Recommended to build a shipment.</div>
 
   <div class="controls">
     <button class="btn primary" onclick="loadLookout()">🔄 Run Lookout</button>
@@ -372,20 +390,129 @@
 
       // Build BLB index: shopifySku -> total HQ stock (ecom + wholesale)
       const blbIndex = new Map();
+      const blbByChannel = new Map(); // sku -> { ecom, wholesale } for the transfer file
       for (const r of blb) {
         const ch = String(r.channel || '').toLowerCase();
         if (ch !== 'ecommerce' && ch !== 'wholesale') continue;
         const sku = String(r.sku || '').toUpperCase();
         if (!sku) continue;
         blbIndex.set(sku, (blbIndex.get(sku) || 0) + (r.on_hand_avail || 0));
+        const c = blbByChannel.get(sku) || { ecom: 0, wholesale: 0 };
+        if (ch === 'ecommerce') c.ecom += r.on_hand_avail || 0; else c.wholesale += r.on_hand_avail || 0;
+        blbByChannel.set(sku, c);
       }
 
       const result = buildLookout(fba, blbIndex, salesWindow, latestSalesDate);
+      for (const r of result.rows || []) {
+        const c = blbByChannel.get(r.shopify_sku) || { ecom: 0, wholesale: 0 };
+        r.blb_ecom = c.ecom; r.blb_wholesale = c.wholesale;
+      }
       window._lookoutData = result;
       renderLookout();
     } catch (err) {
       document.getElementById('lookout-content').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error</div><div class="empty-sub">${err.message}</div></div>`;
     }
+  }
+
+  // ============================================================================
+  // Amazon SKU — same rule as the FBA Shipment page (shipment.html).
+  // Lookout SKUs are never in FBA yet, so there is no raw_sku; overrides cover
+  // SKUs Amazon forced onto a fresh FBA2- listing. Keep in sync with shipment.html.
+  // ============================================================================
+  const AMZ_SKU_OVERRIDES = {
+    'ES-RRG-CDC-S':   'FBA2-ES-RRG-CDC-S',
+    'ES-RRG-CDC-XXL': 'FBA2-ES-RRG-CDC-XXL',
+  };
+  function amazonSku(shopifySku) {
+    const shop = String(shopifySku || '').toUpperCase().trim();
+    return AMZ_SKU_OVERRIDES[shop] || ('FBA-' + shop);
+  }
+
+  // Transfer math, copied from shipment.html so both pages agree.
+  const ECOM_POST_SHIPMENT_TARGET_PCT = 0.40;
+  function calcTransfer(ecom, wholesale, unitsToShip) {
+    if (ecom >= unitsToShip) return 0;
+    if (unitsToShip <= 0) return 0;
+    const totalBefore = ecom + wholesale;
+    const remaining = totalBefore - unitsToShip;
+    if (remaining <= 0) return Math.min(wholesale, Math.max(0, unitsToShip - ecom));
+    const targetEcomAfter = Math.round(remaining * ECOM_POST_SHIPMENT_TARGET_PCT);
+    const targetEcomBefore = targetEcomAfter + unitsToShip;
+    let transfer = Math.max(0, targetEcomBefore - ecom);
+    transfer = Math.max(transfer, unitsToShip - ecom);
+    transfer = Math.min(transfer, wholesale);
+    return transfer;
+  }
+
+  // ============================================================================
+  // Shipment builder state
+  // Picked SKUs live here (shopify_sku -> units). Survives a re-run of the
+  // lookout for any SKU that is still recommended.
+  // ============================================================================
+  window._picked = window._picked || new Map();
+
+  function rowFor(sku) { return (window._lookoutData.rows || []).find(r => r.shopify_sku === sku); }
+  function pickedRows() {
+    // Shipment list follows the recommendation order, not click order.
+    return (window._lookoutData.rows || []).filter(r => window._picked.has(r.shopify_sku));
+  }
+  function totalPicked() {
+    let t = 0; for (const v of window._picked.values()) t += (parseInt(v, 10) || 0); return t;
+  }
+
+  function togglePick(sku, on) {
+    const r = rowFor(sku); if (!r) return;
+    if (on) window._picked.set(sku, r.recommended);
+    else window._picked.delete(sku);
+    renderLookout();
+  }
+  function pickFamily(styleKey) {
+    const fam = window._lookoutData.rows.filter(r => r.style_key === styleKey);
+    const allIn = fam.every(r => window._picked.has(r.shopify_sku));
+    for (const r of fam) {
+      if (allIn) window._picked.delete(r.shopify_sku);
+      else if (!window._picked.has(r.shopify_sku)) window._picked.set(r.shopify_sku, r.recommended);
+    }
+    renderLookout();
+  }
+  function pickAll() {
+    for (const r of window._lookoutData.rows) if (!window._picked.has(r.shopify_sku)) window._picked.set(r.shopify_sku, r.recommended);
+    renderLookout();
+  }
+  function clearPicked() {
+    if (window._picked.size && !confirm('Remove every SKU from this shipment?')) return;
+    window._picked.clear();
+    renderLookout();
+  }
+  function resetQty(sku) {
+    const r = rowFor(sku); if (!r) return;
+    window._picked.set(sku, r.recommended);
+    renderLookout();
+  }
+  function setQty(sku, val, el) {
+    const n = Math.max(0, parseInt(val, 10) || 0);
+    window._picked.set(sku, n);
+    const r = rowFor(sku);
+    if (el) el.classList.toggle('over', r && n > r.blb_available);
+    updateShipFooter();
+  }
+  function updateShipFooter() {
+    const total = totalPicked();
+    const k = document.getElementById('ship-total-kpi'); if (k) k.textContent = fmtN(total);
+    const t = document.getElementById('ship-total-row'); if (t) t.textContent = fmtN(total);
+    const rows = pickedRows();
+    const over = rows.filter(r => (parseInt(window._picked.get(r.shopify_sku), 10) || 0) > r.blb_available).length;
+    const zero = rows.filter(r => (parseInt(window._picked.get(r.shopify_sku), 10) || 0) <= 0).length;
+    const note = document.getElementById('ship-note');
+    if (note) {
+      const parts = [];
+      if (over) parts.push(`${over} SKU${over === 1 ? '' : 's'} above HQ stock`);
+      if (zero) parts.push(`${zero} at 0 units will be left out of the export`);
+      note.textContent = parts.length ? parts.join(' · ') : 'Quantities start at the recommended amount. Edit any of them before exporting.';
+      note.classList.toggle('warn', over > 0);
+    }
+    const hasUnits = rows.some(r => (parseInt(window._picked.get(r.shopify_sku), 10) || 0) > 0);
+    ['btn-export', 'btn-transfer'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = !hasUnits; });
   }
 
   // ============================================================================
@@ -408,27 +535,73 @@
       return;
     }
 
+    // Drop picks that are no longer recommended after a re-run.
+    for (const sku of [...window._picked.keys()]) if (!rowFor(sku)) window._picked.delete(sku);
+
     let html = '<div class="kpi-row-2">';
-    html += `<div class="kpi orange"><div class="kpi-label">Total Units to Send</div><div class="kpi-value">${fmtN(d.total_units)}</div></div>`;
-    html += `<div class="kpi blue"><div class="kpi-label">SKU Families Flagged</div><div class="kpi-value">${fmtN(d.family_count || 0)}</div></div>`;
+    html += `<div class="kpi orange"><div class="kpi-label">Units in This Shipment</div><div class="kpi-value" id="ship-total-kpi">${fmtN(totalPicked())}</div></div>`;
+    html += `<div class="kpi blue"><div class="kpi-label">SKU Families Flagged</div><div class="kpi-value">${fmtN(d.family_count || 0)} <span style="font-size:13px;color:var(--text-dim);font-weight:500;">· ${fmtN(d.total_units)} units recommended</span></div></div>`;
     html += '</div>';
 
     html += '<div class="grid-2">';
 
-    // Left — velocity detail
+    // Left — shipment being built
+    const picked = pickedRows();
     html += '<div>';
-    html += '<div class="section-hdr"><div class="section-title">Velocity Detail</div><div class="section-sub">Per-SKU breakdown of triggering families</div></div>';
+    html += `<div class="section-hdr"><div class="section-title">Shipment (${picked.length} SKU${picked.length === 1 ? '' : 's'})</div>
+      <div class="btn-row">
+        <button class="btn ghost" onclick="clearPicked()" ${picked.length ? '' : 'disabled'}>Clear</button>
+        <button class="btn" id="btn-transfer" onclick="exportTransfer()">⬇️ Export Transfer</button>
+        <button class="btn primary" id="btn-export" onclick="exportShipment()">⬇️ Export XLSX</button>
+      </div></div>`;
+    html += '<div class="table-wrap">';
+    if (!picked.length) {
+      html += '<div class="ship-empty">No SKUs added yet.<br>Tick SKUs in Recommended, or use “Add family” to add every size of a style.</div>';
+    } else {
+      html += '<table><thead><tr><th>Amazon SKU</th><th>Shopify SKU</th><th class="r">Rec.</th><th class="r">HQ Stock</th><th class="r">Units</th><th></th></tr></thead><tbody>';
+      let prev = null;
+      for (const r of picked) {
+        if (prev !== null && prev !== r.style_key) html += '<tr class="group-spacer"><td colspan="6"></td></tr>';
+        prev = r.style_key;
+        const u = parseInt(window._picked.get(r.shopify_sku), 10) || 0;
+        const sku = r.shopify_sku;
+        html += `<tr>
+          <td class="mono">${amazonSku(sku)}</td>
+          <td class="mono">${sku}</td>
+          <td class="r" style="color:var(--text-dim);cursor:pointer;" title="Reset to recommended" onclick="resetQty('${sku}')">${fmtN(r.recommended)}</td>
+          <td class="r">${fmtN(r.blb_available)}</td>
+          <td class="r"><input class="qty ${u > r.blb_available ? 'over' : ''}" type="number" min="0" step="1" value="${u}"
+                aria-label="Units for ${sku}" oninput="setQty('${sku}', this.value, this)"></td>
+          <td class="r"><button class="x" title="Remove" aria-label="Remove ${sku}" onclick="togglePick('${sku}', false)">×</button></td>
+        </tr>`;
+      }
+      html += `<tr><td colspan="4" style="font-weight:600;">Total units</td><td class="r" style="font-weight:700;" id="ship-total-row">${fmtN(totalPicked())}</td><td></td></tr>`;
+      html += '</tbody></table>';
+      html += '<div class="ship-note" id="ship-note"></div>';
+    }
+    html += '</div></div>';
+
+    // Right — recommendations to pick from
+    html += '<div>';
+    html += `<div class="section-hdr"><div class="section-title">Recommended</div>
+      <div class="btn-row"><button class="btn" onclick="pickAll()">Add all</button></div></div>`;
     html += '<div class="table-wrap"><table><thead><tr>';
-    html += '<th>Shopify SKU</th><th class="r">7D</th><th class="r">30D</th><th class="r">60D</th><th class="r">Send</th><th class="r">HQ Stock</th>';
+    html += '<th></th><th>Shopify SKU</th><th class="r">7D</th><th class="r">30D</th><th class="r">60D</th><th class="r">Send</th><th class="r">HQ Stock</th>';
     html += '</tr></thead><tbody>';
 
     let prevStyle = null;
     for (const r of d.rows) {
-      if (prevStyle !== null && prevStyle !== r.style_key) {
-        html += '<tr class="group-spacer"><td colspan="6"></td></tr>';
+      if (prevStyle !== r.style_key) {
+        const fam = d.rows.filter(x => x.style_key === r.style_key);
+        const allIn = fam.every(x => window._picked.has(x.shopify_sku));
+        html += `<tr class="group-hdr"><td colspan="7">${r.style_key}
+          <button class="btn" onclick="pickFamily('${r.style_key}')">${allIn ? 'Remove family' : 'Add family'}</button></td></tr>`;
       }
       prevStyle = r.style_key;
-      html += `<tr>
+      const on = window._picked.has(r.shopify_sku);
+      html += `<tr class="${on ? 'picked' : ''}">
+        <td class="chk"><input type="checkbox" ${on ? 'checked' : ''} aria-label="Add ${r.shopify_sku}"
+              onchange="togglePick('${r.shopify_sku}', this.checked)"></td>
         <td class="mono">${r.shopify_sku}</td>
         <td class="r">${fmtN(r.u7)}</td>
         <td class="r">${fmtN(r.u30)}</td>
@@ -439,31 +612,72 @@
     }
     html += '</tbody></table></div></div>';
 
-    // Right — shipment list
-    html += '<div>';
-    html += '<div class="section-hdr"><div class="section-title">Shipment List</div>';
-    html += '<button class="btn primary" style="font-size:12px;padding:5px 10px;" onclick="exportLookout()">⬇️ Export CSV</button></div>';
-    html += '<div class="table-wrap"><table><thead><tr><th>Amazon SKU</th><th>Shopify SKU</th><th class="r">Units</th></tr></thead><tbody>';
-    for (const r of d.shipment_list) {
-      html += `<tr><td class="mono">${r.amazon_sku}</td><td class="mono">${r.shopify_sku}</td><td class="r" style="font-weight:700;">${fmtN(r.units)}</td></tr>`;
-    }
-    html += '</tbody></table></div></div>';
-
     html += '</div>';
     document.getElementById('lookout-content').innerHTML = html;
+    updateShipFooter();
   }
 
-  function exportLookout() {
-    const d = window._lookoutData;
-    if (!d || !d.shipment_list || !d.shipment_list.length) return;
-    const csv = ['Amazon SKU,Shopify SKU,Units'];
-    for (const r of d.shipment_list) csv.push([r.amazon_sku, r.shopify_sku, r.units].join(','));
-    const blob = new Blob([csv.join('\n')], { type: 'text/csv' });
+  // ============================================================================
+  // Export — identical layout to exportShipment() on the FBA Shipment page:
+  //
+  //   Row 1:  "WEEKLY FBA SHIPMENT"
+  //   Row 2:  "Shopify Customer: Amazon FBA"
+  //   Row 3:  blank
+  //   Row 4:  blank
+  //   Row 5:  Amazon SKU | Shopify SKU | Units Needed for 90 Day Supply
+  //   Row 6+: one row per picked SKU with units > 0
+  //
+  // Sheet "Current Shipment", column widths A=30, B=25, C=30,
+  // file FBA_Shipment_<date>.xlsx. Only the SKUs in the Shipment list export.
+  // ============================================================================
+  function exportShipment() {
+    const rows = pickedRows();
+    if (!rows.length) return;
+
+    const aoa = [
+      ['WEEKLY FBA SHIPMENT'],
+      ['Shopify Customer: Amazon FBA'],
+      [],
+      [],
+      ['Amazon SKU', 'Shopify SKU', 'Units Needed for 90 Day Supply'],
+    ];
+    let n = 0;
+    for (const r of rows) {
+      const units = parseInt(window._picked.get(r.shopify_sku), 10) || 0;
+      if (units <= 0) continue;
+      aoa.push([amazonSku(r.shopify_sku), r.shopify_sku, units]);
+      n++;
+    }
+    if (!n) { alert('Every SKU in the shipment is at 0 units — nothing to export.'); return; }
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 30 }, { wch: 25 }, { wch: 30 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Current Shipment');
+
+    const dateStr = window._lookoutData && window._lookoutData.run_date ? window._lookoutData.run_date : toISO(new Date());
+    XLSX.writeFile(wb, `FBA_Shipment_${dateStr}.xlsx`);
+  }
+
+  // Transfer file, same template as the FBA Shipment page:
+  //   Origin location,Destination location,Origin channel,Destination channel,sku,quantity
+  //   HQ,HQ,Wholesale,eCommerce,<shopify_sku>,<qty>
+  function exportTransfer() {
+    const rows = pickedRows();
+    if (!rows.length) return;
+    const lines = ['Origin location,Destination location,Origin channel,Destination channel,sku,quantity'];
+    for (const r of rows) {
+      const units = parseInt(window._picked.get(r.shopify_sku), 10) || 0;
+      const qty = calcTransfer(r.blb_ecom || 0, r.blb_wholesale || 0, units);
+      if (qty > 0) lines.push(`HQ,HQ,Wholesale,eCommerce,${r.shopify_sku},${qty}`);
+    }
+    if (lines.length === 1) { alert('No transfers needed — eCommerce stock already covers this shipment.'); return; }
+    const dateStr = window._lookoutData && window._lookoutData.run_date ? window._lookoutData.run_date : toISO(new Date());
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = `fba-lookout-${d.run_date || 'export'}.csv`;
-    a.click();
+    a.href = url; a.download = `FBA_Transfer_${dateStr}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
 </script>
