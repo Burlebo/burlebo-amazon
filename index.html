@@ -136,6 +136,37 @@
   .toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(16px); background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 11px 20px; border-radius: 999px; font-size: 14px; font-weight: 600; opacity: 0; pointer-events: none; transition: all .2s; z-index: 100; }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+  /* colorway drill-down + copy popup */
+  .copybar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .copybar .clabel { font-size: 12px; font-weight: 600; color: var(--text-dim); margin-right: 2px; }
+  .cwgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-top: 16px; }
+  .cwcard { text-align: left; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 15px; cursor: pointer; display: flex; flex-direction: column; gap: 6px; color: var(--text); font-family: inherit; }
+  .cwcard:hover { border-color: var(--accent); }
+  .cwcard .cwname { font-size: 14px; font-weight: 600; line-height: 1.3; }
+  .cwcard .cwmeta { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  .cwcard .cwsizes { font-size: 11.5px; color: var(--text-dim); }
+  .cwcard .go { color: var(--accent); font-weight: 600; }
+
+  .cw-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px 24px; z-index: 90; overflow-y: auto; }
+  .cw-modal { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg, 0 12px 32px rgba(0,0,0,.4)); width: 640px; max-width: 100%; padding: 22px 22px 18px; }
+  .cw-modal .mhead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+  .cw-modal .mgroup { font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; }
+  .cw-modal h3 { font-size: 19px; font-weight: 700; margin: 3px 0 2px; }
+  .cw-modal .mstyle { font-size: 12.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  .cw-modal .copybar { margin-bottom: 12px; }
+  .cwtable-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+  .cwtable { width: 100%; border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+  .cwtable th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); background: var(--panel-2); padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .cwtable td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .cwtable tr:last-child td { border-bottom: none; }
+  .cwtable td.mono { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12.5px; white-space: nowrap; user-select: all; }
+  .cwtable td.sz { font-weight: 600; white-space: nowrap; }
+  .cwtable td.act { text-align: right; white-space: nowrap; }
+  .cwtable .chk .ctext { font-size: 12px; }
+  .cw-modal .mfoot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .cw-modal .mnote { font-size: 12px; color: var(--text-dim); }
+  .btn.copied { border-color: var(--green); color: var(--green); }
+
   @media (max-width: 560px) { .checks { width: 100%; } .rowtools { margin-left: 0; } }
 </style>
 </head>
@@ -154,6 +185,7 @@
 
   <div class="pipe" id="pipe"></div>
   <div id="view"></div>
+  <div id="cwmodal"></div>
 </main>
 
 <div id="toast" class="toast"></div>
@@ -215,7 +247,7 @@
   // Pipeline
   // ============================================================================
   const STAGES = [
-    { key:"groups",  label:"Product Groups",    hint:"Click a group to see its SKUs. Check a SKU once it's added to Amazon with images and closed — it moves to the next stage." },
+    { key:"groups",  label:"Product Groups",    hint:"Click a group, then a colorway, to copy its SKUs and UPCs for the flat file. Check each SKU once it's added to Amazon with images and closed — it moves to the next stage." },
     { key:"closed",  label:"Closed — Ready",    hint:"Sync A+, sync inventory, and launch. When all three are checked, the SKU moves to Currently Selling." },
     { key:"selling", label:"Currently Selling", hint:"Live on Amazon." }
   ];
@@ -228,7 +260,7 @@
   ];
 
   let skus = [], EDIT = true;
-  let state = { tab:"groups", group:null, adding:false };
+  let state = { tab:"groups", group:null, adding:false, cw:null };
 
   const $ = id => document.getElementById(id);
   const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -442,7 +474,7 @@
   const inStage = stage => skus.filter(s => s.stage === stage);
   const groupsIn = stage => [...new Set(inStage(stage).map(s => s.group_name))].sort((a,b) => a.localeCompare(b));
 
-  function render() { renderPipe(); renderView(); }
+  function render() { renderPipe(); renderView(); renderModal(); }
 
   const APLUS = [ { key:'aplus_needs', label:'Needs A+ Content' }, { key:'aplus_done', label:'A+ Content Done' } ];
 
@@ -584,10 +616,31 @@
     $('view').innerHTML = html;
   }
 
+  // ---------------------------------------------------------------------------
+  // Colorway helpers
+  // ---------------------------------------------------------------------------
+  const cwKey  = s => s.colorway || s.style || 'Other';
+  const sizeOf = s => s.size || (s.style && s.sku.startsWith(s.style + '-') ? s.sku.slice(s.style.length + 1) : '') || 'One size';
+  const bySort = (a,b) => (a.sort_order||0) - (b.sort_order||0);
+  function colorwaysOf(rows) {
+    const m = new Map();
+    rows.slice().sort(bySort).forEach(s => { const k = cwKey(s); if (!m.has(k)) m.set(k, []); m.get(k).push(s); });
+    return [...m.entries()].map(([name, list]) => ({ name, list }));
+  }
+  const rowsInCw = () => state.cw ? skus.filter(s => s.group_name===state.cw.group && s.stage===state.tab && cwKey(s)===state.cw.name).sort(bySort) : [];
+
+  function copyBar(scope) {
+    return `<div class="copybar"><span class="clabel">Copy</span>
+      <button class="btn primary" data-act="copy" data-scope="${scope}" data-what="both">SKU + UPC</button>
+      <button class="btn" data-act="copy" data-scope="${scope}" data-what="sku">SKUs only</button>
+      <button class="btn" data-act="copy" data-scope="${scope}" data-what="upc">UPCs only</button></div>`;
+  }
+
   function renderDetail() {
     const g = state.group, tab = state.tab;
     const rows = skus.filter(s => s.group_name===g && s.stage===tab);
-    if (!rows.length) { state.group=null; return renderView(); }
+    if (!rows.length) { state.group=null; state.cw=null; return renderView(); }
+    const cws = colorwaysOf(rows);
 
     let html = `<button class="back" data-act="back">← All groups</button>
       <div class="vhead"><div><h2>${esc(g)}</h2><p class="hint">${stageDef(tab).hint}</p></div>
@@ -600,39 +653,120 @@
       </div>`;
     }
 
-    html += `<div class="skulist">` + rows.map(s => {
-      const label = `<div class="slabel">${esc(s.sku)}${s.style?`<span class="code">${esc(s.style)}</span>`:''}</div>`;
-      const ro = EDIT ? '' : ' ro';
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px">
+        <span class="hint" style="margin:0;font-size:13px;color:var(--text-dim)">${cws.length} colorway${cws.length!==1?'s':''} · ${rows.length} SKU${rows.length!==1?'s':''}</span>
+        ${copyBar('group')}</div>`;
 
-      if (tab==='groups') {
-        const tools = EDIT ? `<div class="rowtools">
-            <button class="tbtn sell" data-act="sell" data-id="${s.id}">Live &amp; selling →</button>
-            <button class="tbtn nogo" data-act="blbonly" data-id="${s.id}">Not going to sell</button>
-          </div>` : '';
-        return `<div class="sku">${label}
-          <div class="checks"><span class="chk single-chk${ro}" role="checkbox" tabindex="0" aria-checked="false" ${EDIT?`data-act="move" data-id="${s.id}"`:''}>
-            <span class="box">${CHECK}</span><span class="ctext">Added to Amazon inventory with images and closed</span>
-          </span></div>${tools}</div>`;
-      }
+    html += `<div class="cwgrid">` + cws.map(c => {
+      const sizes = c.list.map(sizeOf).join(' · ');
+      let extra = '';
       if (tab==='closed') {
-        const done = (s.aplus_synced?1:0)+(s.inventory_synced?1:0)+(s.launched_live?1:0);
-        const checks = FIELDS.map(f => `<span class="chk${ro}" role="checkbox" tabindex="0" aria-checked="${s[f.key]?'true':'false'}" ${EDIT?`data-act="toggle" data-id="${s.id}" data-field="${f.key}"`:''}>
-            <span class="box">${CHECK}</span><span class="ctext">${f.label}</span></span>`).join('');
-        return `<div class="sku">${label}<div class="checks">${checks}</div><span class="miniprog">${done}/3</span>
-          ${EDIT?`<div class="rowtools"><button class="tbtn" data-act="revert" data-id="${s.id}" data-to="groups">↩ Back</button></div>`:''}</div>`;
+        const done = c.list.reduce((a,s)=>a+(s.aplus_synced?1:0)+(s.inventory_synced?1:0)+(s.launched_live?1:0),0);
+        extra = `<div class="bar"><i style="width:${c.list.length?done/(c.list.length*3)*100:0}%"></i></div>`;
       }
-      if (tab==='selling') {
-        return `<div class="sku">${label}<span class="livebadge">● Live</span>
-          ${EDIT?`<div class="rowtools"><button class="tbtn" data-act="revert" data-id="${s.id}" data-to="closed">↩ Back to Ready</button></div>`:''}</div>`;
-      }
-      return `<div class="sku">${label}<span class="livebadge nogo-badge">BURLEBO only</span>
-        ${EDIT?`<div class="rowtools"><button class="tbtn" data-act="revert" data-id="${s.id}" data-to="groups">↩ Back to Products</button></div>`:''}</div>`;
+      return `<button class="cwcard" data-act="cw-open" data-cw="${esc(c.name)}">
+        <div class="cwname">${esc(c.name)}</div>
+        <div class="cwsizes">${esc(sizes)}</div>
+        <div class="cwmeta"><span>${c.list.length} SKU${c.list.length!==1?'s':''}${c.list[0].style?` · ${esc(c.list[0].style)}`:''}</span><span class="go">Open →</span></div>
+        ${extra}</button>`;
     }).join('') + `</div>`;
 
     if (tab==='groups' && EDIT) {
       html += `<div style="margin-top:20px"><button class="tbtn del" data-act="delgroup" data-group="${esc(g)}">Delete this group</button></div>`;
     }
     $('view').innerHTML = html;
+  }
+
+  // Per-SKU stage actions, shown in the popup's last column
+  function skuActions(s, tab) {
+    const ro = EDIT ? '' : ' ro';
+    if (tab==='groups') {
+      return `<span class="chk single-chk${ro}" role="checkbox" tabindex="0" aria-checked="false" ${EDIT?`data-act="move" data-id="${s.id}"`:''}>
+          <span class="box">${CHECK}</span><span class="ctext">Added &amp; closed</span></span>
+        ${EDIT?`<button class="tbtn nogo" data-act="blbonly" data-id="${s.id}" title="Not going to sell on Amazon">Skip</button>`:''}`;
+    }
+    if (tab==='closed') {
+      const done = (s.aplus_synced?1:0)+(s.inventory_synced?1:0)+(s.launched_live?1:0);
+      const checks = FIELDS.map(f => `<span class="chk${ro}" role="checkbox" tabindex="0" aria-checked="${s[f.key]?'true':'false'}" title="${f.label}" ${EDIT?`data-act="toggle" data-id="${s.id}" data-field="${f.key}"`:''}>
+          <span class="box">${CHECK}</span><span class="ctext">${f.label.split(' ')[0]}</span></span>`).join(' ');
+      return `<div class="checks" style="justify-content:flex-end;gap:10px">${checks}<span class="miniprog">${done}/3</span>
+        ${EDIT?`<button class="tbtn" data-act="revert" data-id="${s.id}" data-to="groups">↩</button>`:''}</div>`;
+    }
+    if (tab==='selling') {
+      return `<span class="livebadge">● Live</span>${EDIT?` <button class="tbtn" data-act="revert" data-id="${s.id}" data-to="closed">↩ Ready</button>`:''}`;
+    }
+    return `<span class="livebadge nogo-badge">BURLEBO only</span>${EDIT?` <button class="tbtn" data-act="revert" data-id="${s.id}" data-to="groups">↩ Back</button>`:''}`;
+  }
+
+  function renderModal() {
+    const host = $('cwmodal'); if (!host) return;
+    if (!state.cw || !state.group || state.tab.startsWith('aplus')) { host.innerHTML = ''; return; }
+    const rows = rowsInCw();
+    if (!rows.length) { state.cw = null; host.innerHTML = ''; return; }
+    const tab = state.tab;
+    const bulk = (tab==='groups' && EDIT)
+      ? `<button class="btn" data-act="cw-closeall">Mark all ${rows.length} added &amp; closed</button>` : '<span></span>';
+    host.innerHTML = `<div class="cw-overlay" data-act="cw-close">
+      <div class="cw-modal" data-act="noop" role="dialog" aria-modal="true">
+        <div class="mhead"><div>
+          <div class="mgroup">${esc(state.cw.group)}</div>
+          <h3>${esc(state.cw.name)}</h3>
+          <div class="mstyle">${rows[0].style?`Style ${esc(rows[0].style)} · `:''}${rows.length} SKU${rows.length!==1?'s':''}</div>
+        </div><button class="gx" data-act="cw-close" title="Close (Esc)" style="font-size:22px">&times;</button></div>
+        ${copyBar('cw')}
+        <div class="cwtable-wrap"><table class="cwtable">
+          <thead><tr><th>Size</th><th>SKU</th><th>UPC</th><th style="text-align:right">${tab==='groups'?'Status':''}</th></tr></thead>
+          <tbody>${rows.map(s => `<tr><td class="sz">${esc(sizeOf(s))}</td><td class="mono">${esc(s.sku)}</td><td class="mono">${esc(s.upc||'—')}</td><td class="act">${skuActions(s, tab)}</td></tr>`).join('')}</tbody>
+        </table></div>
+        <div class="mfoot">${bulk}<span class="mnote">Pastes into Excel as two columns, UPCs kept as text.</span></div>
+      </div></div>`;
+  }
+
+  // Clipboard: plain TSV for anything, plus an HTML table that tells Excel to
+  // keep UPCs as text (otherwise 12-digit UPCs show as 8.40377E+11).
+  async function copyRows(rows, what) {
+    if (!rows.length) { toast('Nothing to copy'); return false; }
+    const cells = s => what==='sku' ? [s.sku] : what==='upc' ? [s.upc||''] : [s.sku, s.upc||''];
+    const text = rows.map(s => cells(s).join('\t')).join('\n');
+    const html = '<table>' + rows.map(s => '<tr>' + cells(s).map(v =>
+      `<td style="mso-number-format:'\\@'">${esc(v)}</td>`).join('') + '</tr>').join('') + '</table>';
+    try {
+      if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+        await navigator.clipboard.write([new ClipboardItem({
+          'text/plain': new Blob([text], { type:'text/plain' }),
+          'text/html':  new Blob([html], { type:'text/html' })
+        })]);
+      } else {
+        await navigator.clipboard.writeText(text);
+      }
+    } catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      const ok = document.execCommand('copy'); ta.remove();
+      if (!ok) { toast('Copy failed'); return false; }
+    }
+    const label = what==='sku' ? 'SKU' : what==='upc' ? 'UPC' : 'row';
+    toast(`Copied ${rows.length} ${label}${rows.length!==1?'s':''}`);
+    return true;
+  }
+  async function doCopy(el) {
+    const rows = el.dataset.scope==='cw' ? rowsInCw()
+      : skus.filter(s => s.group_name===state.group && s.stage===state.tab).sort(bySort);
+    if (await copyRows(rows, el.dataset.what)) {
+      el.classList.add('copied'); const t = el.textContent; el.textContent = 'Copied ✓';
+      setTimeout(() => { el.classList.remove('copied'); el.textContent = t; }, 1300);
+    }
+  }
+
+  async function closeMany(ids) {
+    if (!ids.length) return;
+    const fields = { added_closed:true, stage:'closed', updated_at:new Date().toISOString() };
+    ids.forEach(id => applyLocal(id, fields));
+    render();
+    const { error } = await sb.from(TABLE).update(fields).in('id', ids);
+    if (error) { toast('Update failed'); console.error(error); await loadAll(); return; }
+    toast(`${ids.length} SKU${ids.length!==1?'s':''} moved to Closed — Ready`);
   }
 
   // events (delegated)
@@ -651,6 +785,7 @@
     if (e.key === 'Enter' && e.target.classList && e.target.classList.contains('aplus-input')) {
       e.preventDefault(); saveAplusLink(e.target.dataset.group, e.target.value); return;
     }
+    if (e.key === 'Escape' && state.cw) { state.cw = null; renderModal(); return; }
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const el = e.target.closest('[role="checkbox"][data-act]'); if (!el) return;
     e.preventDefault(); handle(el.dataset.act, el);
@@ -660,9 +795,9 @@
     const id = el.dataset.id ? Number(el.dataset.id) : null;
     const s = id != null ? skus.find(x => x.id === id) : null;
     switch (act) {
-      case 'tab': state.tab = el.dataset.tab; state.group = null; state.adding = false; render(); break;
+      case 'tab': state.tab = el.dataset.tab; state.group = null; state.cw = null; state.adding = false; render(); break;
       case 'open': state.group = el.dataset.group; render(); break;
-      case 'back': state.group = null; state.adding = false; render(); break;
+      case 'back': state.group = null; state.cw = null; state.adding = false; render(); break;
       case 'move': if (s) moveClosed(s.id); break;
       case 'sell': if (s) moveSelling(s.id); break;
       case 'blbonly': if (s) moveBlb(s.id); break;
@@ -685,6 +820,11 @@
       case 'addskus-open': state.adding = true; renderView(); $('fSkus')?.focus(); break;
       case 'addskus-cancel': state.adding = false; renderView(); break;
       case 'addskus-save': saveMoreSkus(); break;
+      case 'cw-open': state.cw = { group: state.group, name: el.dataset.cw }; renderModal(); break;
+      case 'cw-close': state.cw = null; renderModal(); break;
+      case 'noop': break;
+      case 'copy': doCopy(el); break;
+      case 'cw-closeall': { const rs = rowsInCw(); if (confirm(`Mark all ${rs.length} SKUs in ${state.cw.name} as added & closed?`)) closeMany(rs.map(s => s.id)); break; }
     }
   }
 
