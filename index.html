@@ -597,7 +597,10 @@
 
     let html = `<button class="back" data-act="back">← All groups</button>
       <div class="vhead"><div><h2>${esc(g)}</h2><p class="hint">${stageDef(tab).hint}</p></div>
-      ${(tab==='groups'&&EDIT)?`<div style="display:flex;gap:8px"><button class="btn ghost" data-act="rename" data-group="${esc(g)}">Rename</button><button class="btn" data-act="addskus-open">+ Add SKUs</button></div>`:''}</div>`;
+      ${EDIT?`<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        ${tab==='groups'?`<button class="btn ghost" data-act="rename" data-group="${esc(g)}">Rename</button><button class="btn" data-act="addskus-open">+ Add SKUs</button>`:''}
+        ${NEXT[tab]?`<button class="btn primary" data-act="group-sendall">Send all ${rows.length} to ${esc(stageDef(NEXT[tab]).label)} →</button>`:''}
+      </div>`:''}</div>`;
 
     if (tab==='groups' && EDIT && state.adding) {
       html += `<div class="form">
@@ -764,6 +767,8 @@
       case 'cw-close': state.cw = null; renderModal(); break;
       case 'noop': break;
       case 'copy': doCopy(el); break;
+      case 'group-sendall': { const rs = skus.filter(x => x.group_name===state.group && x.stage===state.tab);
+        if (rs.length && confirm(`Send all ${rs.length} ${state.group} SKUs to ${stageDef(NEXT[state.tab]).label}?`)) moveMany(rs.map(x => x.id), state.tab); break; }
       case 'cw-closeall': { const rs = rowsInCw(); if (confirm(`Mark all ${rs.length} SKUs in ${state.cw.name} as ${STEP_LABEL[state.tab].toLowerCase()}?`)) moveMany(rs.map(s => s.id), state.tab); break; }
     }
   }
