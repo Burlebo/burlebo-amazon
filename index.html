@@ -181,7 +181,7 @@
 
 <main id="app-main" class="hidden">
   <div class="page-title">Product Launch Tracker</div>
-  <div class="page-sub">Move each SKU through the pipeline: added &amp; closed on Amazon → A+, inventory &amp; launch synced → live and selling.</div>
+  <div class="page-sub">Move each SKU through two steps: added to the flat file → added to Amazon inventory and closed.</div>
 
   <div class="pipe" id="pipe"></div>
   <div id="view"></div>
@@ -239,7 +239,6 @@
   // stays correct even if the realtime channel never connects.
   async function loadAll() {
     await Promise.all([loadSkus(), loadAplus()]);
-    await promoteCompleted();   // heal any SKU already at 3/3 but stuck in "closed"
     render();
   }
 
@@ -247,17 +246,14 @@
   // Pipeline
   // ============================================================================
   const STAGES = [
-    { key:"groups",  label:"Product Groups",    hint:"Click a group, then a colorway, to copy its SKUs and UPCs for the flat file. Check each SKU once it's added to Amazon with images and closed — it moves to the next stage." },
-    { key:"closed",  label:"Closed — Ready",    hint:"Sync A+, sync inventory, and launch. When all three are checked, the SKU moves to Currently Selling." },
-    { key:"selling", label:"Currently Selling", hint:"Live on Amazon." }
+    { key:"groups",   label:"Product Groups",             hint:"Click a group, then a colorway, to copy its SKUs and UPCs for the flat file. Check each SKU once it's in the flat file — it moves to the next step." },
+    { key:"flatfile", label:"Added to Flat File",         hint:"Check each SKU once it's added to Amazon inventory and closed." },
+    { key:"closed",   label:"Added to Inventory & Closed", hint:"Done — in Amazon inventory and closed." }
   ];
+  const NEXT = { groups:'flatfile', flatfile:'closed' };
+  const STEP_LABEL = { groups:'Added to flat file', flatfile:'Added to inventory & closed' };
   const BRANCH = { key:"blb_only", label:"BURLEBO Selling · Amazon Not", hint:"Selling on burlebo.com but intentionally not listed on Amazon." };
   const stageDef = k => STAGES.concat([BRANCH]).find(s => s.key === k);
-  const FIELDS = [
-    { key:"aplus_synced",     label:"A+ Content Synced" },
-    { key:"inventory_synced", label:"Inventory Synced" },
-    { key:"launched_live",    label:"Launched and Live" }
-  ];
 
   let skus = [], EDIT = true;
   let state = { tab:"groups", group:null, adding:false, cw:null };
@@ -276,22 +272,6 @@
     const { data, error } = await sb.from('aplus_content').select('*');
     if (error) { console.error(error); return; }
     aplus = {}; (data||[]).forEach(r => { aplus[r.group_name] = r; });
-  }
-
-  // Any SKU sitting in "closed" with all three boxes ticked belongs in "selling".
-  // Runs on every load so rows stranded by the old bug fix themselves.
-  async function promoteCompleted() {
-    if (!EDIT) return;
-    const stuck = skus.filter(s =>
-      s.stage === 'closed' && s.aplus_synced && s.inventory_synced && s.launched_live);
-    if (!stuck.length) return;
-    const ids = stuck.map(s => s.id);
-    const { error } = await sb.from(TABLE)
-      .update({ stage:'selling', updated_at:new Date().toISOString() })
-      .in('id', ids);
-    if (error) { console.error(error); return; }
-    stuck.forEach(s => { s.stage = 'selling'; });
-    toast(`${ids.length} SKU${ids.length>1?'s':''} moved to Currently Selling`);
   }
 
   const allGroups = () => [...new Set(skus.map(s => s.group_name))].sort((a,b) => a.localeCompare(b));
@@ -431,31 +411,11 @@
     render();
     toast('Group removed');
   }
-  function moveClosed(id)  { patch(id, { added_closed:true, stage:'closed' }); toast('Moved to Closed — Ready'); }
-  function moveSelling(id) { patch(id, { stage:'selling', added_closed:true, aplus_synced:true, inventory_synced:true, launched_live:true }); toast('Moved to Currently Selling'); }
+  function moveNext(id, from) { const to = NEXT[from]; if (!to) return; patch(id, { stage:to, added_closed: to==='closed' }); toast('Moved to ' + stageDef(to).label); }
   function moveBlb(id)     { patch(id, { stage:'blb_only' }); toast('Parked in BURLEBO Selling · Amazon Not'); }
 
-  // Reads the CURRENT row out of state (not a captured copy) so the third
-  // check sees the first two as already true and promotes the SKU.
-  function toggleField(s, field) {
-    const row = skus.find(x => x.id === s.id) || s;
-    const next = !row[field];
-    const flags = {
-      aplus_synced:     row.aplus_synced,
-      inventory_synced: row.inventory_synced,
-      launched_live:    row.launched_live
-    };
-    flags[field] = next;
-    const fields = { [field]: next };
-    if (flags.aplus_synced && flags.inventory_synced && flags.launched_live) {
-      fields.stage = 'selling';
-      toast('Now Currently Selling');
-    }
-    patch(s.id, fields);
-  }
   function revert(id, to) {
-    if (to === 'groups') patch(id, { stage:'groups', added_closed:false, aplus_synced:false, inventory_synced:false, launched_live:false });
-    else patch(id, { stage:'closed', launched_live:false });
+    patch(id, { stage:to, added_closed:false });
     toast('Moved back');
   }
   async function renameGroup(oldName) {
@@ -593,23 +553,16 @@
     if (!gs.length) {
       html += `<div class="empty"><p>${
         state.tab==='groups' ? 'No product groups yet. Add your first one to start the pipeline.' :
-        state.tab==='closed' ? 'Nothing here yet. SKUs arrive once they\u2019re added to Amazon and closed.' :
-        state.tab==='selling' ? 'Nothing live yet. SKUs arrive once A+, inventory, and launch are all checked.' :
+        state.tab==='flatfile' ? 'Nothing here yet. SKUs arrive once they\u2019re added to the flat file.' :
+        state.tab==='closed' ? 'Nothing here yet. SKUs arrive once they\u2019re added to Amazon inventory and closed.' :
         'Nothing here. Use \u201CNot going to sell\u201D on a product to park it here.'
       }</p></div>`;
     } else {
       html += `<div class="grid">` + gs.map(g => {
         const rows = skus.filter(s => s.group_name===g && s.stage===state.tab);
-        let pct = 0;
-        if (state.tab==='closed') {
-          const total = rows.length*3;
-          const done = rows.reduce((a,s)=>a+(s.aplus_synced?1:0)+(s.inventory_synced?1:0)+(s.launched_live?1:0),0);
-          pct = total ? done/total*100 : 0;
-        }
         return `<button class="gcard" data-act="open" data-group="${esc(g)}">
           <div class="gname">${esc(g)}</div>
           <div class="gmeta"><span>${rows.length} SKU${rows.length!=1?'s':''}</span><span class="go">Open →</span></div>
-          ${state.tab==='closed'?`<div class="bar"><i style="width:${pct}%"></i></div>`:''}
         </button>`;
       }).join('') + `</div>`;
     }
@@ -659,16 +612,11 @@
 
     html += `<div class="cwgrid">` + cws.map(c => {
       const sizes = c.list.map(sizeOf).join(' · ');
-      let extra = '';
-      if (tab==='closed') {
-        const done = c.list.reduce((a,s)=>a+(s.aplus_synced?1:0)+(s.inventory_synced?1:0)+(s.launched_live?1:0),0);
-        extra = `<div class="bar"><i style="width:${c.list.length?done/(c.list.length*3)*100:0}%"></i></div>`;
-      }
       return `<button class="cwcard" data-act="cw-open" data-cw="${esc(c.name)}">
         <div class="cwname">${esc(c.name)}</div>
         <div class="cwsizes">${esc(sizes)}</div>
         <div class="cwmeta"><span>${c.list.length} SKU${c.list.length!==1?'s':''}${c.list[0].style?` · ${esc(c.list[0].style)}`:''}</span><span class="go">Open →</span></div>
-        ${extra}</button>`;
+        </button>`;
     }).join('') + `</div>`;
 
     if (tab==='groups' && EDIT) {
@@ -680,20 +628,14 @@
   // Per-SKU stage actions, shown in the popup's last column
   function skuActions(s, tab) {
     const ro = EDIT ? '' : ' ro';
-    if (tab==='groups') {
+    if (NEXT[tab]) {
+      const back = tab==='flatfile' && EDIT ? ` <button class="tbtn" data-act="revert" data-id="${s.id}" data-to="groups" title="Back to Product Groups">↩</button>` : '';
+      const skip = tab==='groups' && EDIT ? ` <button class="tbtn nogo" data-act="blbonly" data-id="${s.id}" title="Not going to sell on Amazon">Skip</button>` : '';
       return `<span class="chk single-chk${ro}" role="checkbox" tabindex="0" aria-checked="false" ${EDIT?`data-act="move" data-id="${s.id}"`:''}>
-          <span class="box">${CHECK}</span><span class="ctext">Added &amp; closed</span></span>
-        ${EDIT?`<button class="tbtn nogo" data-act="blbonly" data-id="${s.id}" title="Not going to sell on Amazon">Skip</button>`:''}`;
+          <span class="box">${CHECK}</span><span class="ctext">${STEP_LABEL[tab]}</span></span>${skip}${back}`;
     }
     if (tab==='closed') {
-      const done = (s.aplus_synced?1:0)+(s.inventory_synced?1:0)+(s.launched_live?1:0);
-      const checks = FIELDS.map(f => `<span class="chk${ro}" role="checkbox" tabindex="0" aria-checked="${s[f.key]?'true':'false'}" title="${f.label}" ${EDIT?`data-act="toggle" data-id="${s.id}" data-field="${f.key}"`:''}>
-          <span class="box">${CHECK}</span><span class="ctext">${f.label.split(' ')[0]}</span></span>`).join(' ');
-      return `<div class="checks" style="justify-content:flex-end;gap:10px">${checks}<span class="miniprog">${done}/3</span>
-        ${EDIT?`<button class="tbtn" data-act="revert" data-id="${s.id}" data-to="groups">↩</button>`:''}</div>`;
-    }
-    if (tab==='selling') {
-      return `<span class="livebadge">● Live</span>${EDIT?` <button class="tbtn" data-act="revert" data-id="${s.id}" data-to="closed">↩ Ready</button>`:''}`;
+      return `<span class="livebadge">✓ Closed</span>${EDIT?` <button class="tbtn" data-act="revert" data-id="${s.id}" data-to="flatfile">↩ Back</button>`:''}`;
     }
     return `<span class="livebadge nogo-badge">BURLEBO only</span>${EDIT?` <button class="tbtn" data-act="revert" data-id="${s.id}" data-to="groups">↩ Back</button>`:''}`;
   }
@@ -704,8 +646,8 @@
     const rows = rowsInCw();
     if (!rows.length) { state.cw = null; host.innerHTML = ''; return; }
     const tab = state.tab;
-    const bulk = (tab==='groups' && EDIT)
-      ? `<button class="btn" data-act="cw-closeall">Mark all ${rows.length} added &amp; closed</button>` : '<span></span>';
+    const bulk = (NEXT[tab] && EDIT)
+      ? `<button class="btn" data-act="cw-closeall">Mark all ${rows.length} ${esc(STEP_LABEL[tab].toLowerCase())}</button>` : '<span></span>';
     host.innerHTML = `<div class="cw-overlay" data-act="cw-close">
       <div class="cw-modal" data-act="noop" role="dialog" aria-modal="true">
         <div class="mhead"><div>
@@ -715,7 +657,7 @@
         </div><button class="gx" data-act="cw-close" title="Close (Esc)" style="font-size:22px">&times;</button></div>
         ${copyBar('cw')}
         <div class="cwtable-wrap"><table class="cwtable">
-          <thead><tr><th>Size</th><th>SKU</th><th>UPC</th><th style="text-align:right">${tab==='groups'?'Status':''}</th></tr></thead>
+          <thead><tr><th>Size</th><th>SKU</th><th>UPC</th><th style="text-align:right">Status</th></tr></thead>
           <tbody>${rows.map(s => `<tr><td class="sz">${esc(sizeOf(s))}</td><td class="mono">${esc(s.sku)}</td><td class="mono">${esc(s.upc||'—')}</td><td class="act">${skuActions(s, tab)}</td></tr>`).join('')}</tbody>
         </table></div>
         <div class="mfoot">${bulk}<span class="mnote">Pastes into Excel as two columns, UPCs kept as text.</span></div>
@@ -759,14 +701,14 @@
     }
   }
 
-  async function closeMany(ids) {
-    if (!ids.length) return;
-    const fields = { added_closed:true, stage:'closed', updated_at:new Date().toISOString() };
+  async function moveMany(ids, from) {
+    const to = NEXT[from]; if (!ids.length || !to) return;
+    const fields = { stage:to, added_closed: to==='closed', updated_at:new Date().toISOString() };
     ids.forEach(id => applyLocal(id, fields));
     render();
     const { error } = await sb.from(TABLE).update(fields).in('id', ids);
     if (error) { toast('Update failed'); console.error(error); await loadAll(); return; }
-    toast(`${ids.length} SKU${ids.length!==1?'s':''} moved to Closed — Ready`);
+    toast(`${ids.length} SKU${ids.length!==1?'s':''} moved to ${stageDef(to).label}`);
   }
 
   // events (delegated)
@@ -798,10 +740,8 @@
       case 'tab': state.tab = el.dataset.tab; state.group = null; state.cw = null; state.adding = false; render(); break;
       case 'open': state.group = el.dataset.group; render(); break;
       case 'back': state.group = null; state.cw = null; state.adding = false; render(); break;
-      case 'move': if (s) moveClosed(s.id); break;
-      case 'sell': if (s) moveSelling(s.id); break;
+      case 'move': if (s) moveNext(s.id, state.tab); break;
       case 'blbonly': if (s) moveBlb(s.id); break;
-      case 'toggle': if (s) toggleField(s, el.dataset.field); break;
       case 'revert': if (s) revert(s.id, el.dataset.to); break;
       case 'del': if (s) delSku(s.id); break;
       case 'delgroup': delGroup(el.dataset.group); break;
@@ -824,7 +764,7 @@
       case 'cw-close': state.cw = null; renderModal(); break;
       case 'noop': break;
       case 'copy': doCopy(el); break;
-      case 'cw-closeall': { const rs = rowsInCw(); if (confirm(`Mark all ${rs.length} SKUs in ${state.cw.name} as added & closed?`)) closeMany(rs.map(s => s.id)); break; }
+      case 'cw-closeall': { const rs = rowsInCw(); if (confirm(`Mark all ${rs.length} SKUs in ${state.cw.name} as ${STEP_LABEL[state.tab].toLowerCase()}?`)) moveMany(rs.map(s => s.id), state.tab); break; }
     }
   }
 
