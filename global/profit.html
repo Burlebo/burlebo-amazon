@@ -213,117 +213,133 @@
 
   // ============================================================================
   // One marketplace
+  // The heavy lifting (adding up tens of thousands of transaction and ad rows,
+  // converting currency at each day's rate) happens in Supabase functions
+  // mp_profit_tx / mp_profit_ads / mp_profit_sales, which return one row per SKU.
   // ============================================================================
+  async function rpcAll(fn, args) {
+    const out = []; let off = 0;
+    while (true) {
+      const { data, error } = await sb.rpc(fn, args).range(off, off + 999);
+      if (error) throw new Error(`${fn}: ${error.message}`);
+      out.push(...(data || []));
+      if (!data || data.length < 1000) break;
+      off += 1000;
+    }
+    return out;
+  }
+  const N = v => Number(v) || 0;
+
+  // Friendlier names for Amazon's non-order charges
+  function chargeLabel(type, label) {
+    const l = String(label || '').trim();
+    if (/ReturnPostageBilling/i.test(l)) return 'Return labels for FBM returns';
+    if (type === 'Shipping Services') return 'Shipping services: ' + (l || 'other');
+    if (!l || /^(other|adjustment)$/i.test(l)) return `${type}${l && l !== type ? ': ' + l : ''}`;
+    return l;
+  }
+
   async function computeMarket(code, s, e) {
     const m = MP.market(code);
     const settings = m.settings || {};
     const notes = [];
-    const conv = (amt, ccy, date) => MP.toDisplay(Number(amt) || 0, ccy, date);
+    const ccy = MP.displayCurrency();
+    const args = { p_mk: code, p_from: s, p_to: e, p_ccy: ccy };
 
     // Fee source: actual if uploaded transaction reports cover the whole range
     const { data: logs } = await sb.from('mp_uploads').select('date_from, date_to').eq('marketplace', code)
       .eq('report_type', 'transactions').eq('status', 'ok').not('date_from', 'is', null);
     const spans = mergeSpans((logs || []).map(l => [l.date_from, l.date_to]));
-    const cover = spans.find(([a, b]) => a <= s && b >= e);
-    const mode = cover ? 'actual' : 'estimated';
-    const txFrom = spans.length ? spans[0][0] : null, txTo = spans.length ? spans[spans.length - 1][1] : null;
+    const mode = spans.find(([a, b]) => a <= s && b >= e) ? 'actual' : 'estimated';
 
     const [ads, overheadRows, terms] = await Promise.all([
-      fetchPaged(() => sb.from('mp_ad_daily').select('id, date, sku, spend, currency').eq('marketplace', code).gte('date', s).lte('date', e)),
+      rpcAll('mp_profit_ads', args),
       sb.from('mp_overhead_monthly').select('*').eq('marketplace', code).gte('month', s.slice(0, 8) + '01').lte('month', e),
       sb.from('mp_agency_terms').select('*').eq('marketplace', code),
     ]);
 
-    const SKU = new Map();     // clean sku -> line
+    const SKU = new Map();
     const unmatched = new Map();
     const line = (sku, g) => {
       let x = SKU.get(sku);
-      if (!x) { x = { sku, group: g.group, market: code, units: 0, refunds: 0, revenue: 0, fees: 0, cogs: 0, ship: 0, ads: 0, leakage: 0, fbaUnits: 0 }; SKU.set(sku, x); }
+      if (!x) { x = { sku, group: g.group, market: code, units: 0, fbaUnits: 0, refunds: 0, liquidated: 0, revenue: 0, fees: 0, reimb: 0, cogs: 0, ship: 0, ads: 0, leakage: 0 }; SKU.set(sku, x); }
       return x;
     };
-    const charges = new Map();  // non-order Amazon charges (actual mode)
-    let fbmOrders = 0, adBilled = 0;
+    const charges = new Map();
+    let adBilled = 0, fbmOrders = 0, fxEst = 0;
 
     if (mode === 'actual') {
-      const tx = await fetchPaged(() => sb.from('mp_transactions')
-        .select('id, posted_date, type, order_id, sku, description, quantity, fulfillment, currency, product_sales, shipping_credits, gift_wrap_credits, promotional_rebates, selling_fees, fba_fees, other_transaction_fees, other, total')
-        .eq('marketplace', code).gte('posted_date', s).lte('posted_date', e));
-      const fbm = new Map();   // order id -> { date, lines: [[line, qty]] }
-      for (const r of tx) {
-        const d = r.posted_date, c = r.currency;
-        if (r.sku) {
-          const g = matchGroup(r.sku);
-          const rev = conv(Number(r.product_sales) + Number(r.shipping_credits) + Number(r.gift_wrap_credits) + Number(r.promotional_rebates), c, d);
-          if (!g) { const u = unmatched.get(r.sku) || { units: 0, revenue: 0 }; u.units += r.type === 'Order' ? (r.quantity || 0) : 0; u.revenue += rev; unmatched.set(r.sku, u); continue; }
-          const x = line(r.sku, g);
-          const q = r.quantity || 0;
-          x.revenue += rev;
-          // Fees come in negative; store as a positive cost.
-          x.fees -= conv(Number(r.selling_fees) + Number(r.fba_fees) + Number(r.other_transaction_fees) + Number(r.other), c, d);
-          if (r.type === 'Order') {
-            x.units += q;
-            if (r.fulfillment === 'Amazon') x.fbaUnits += q;
-            x.cogs += q * MP.toDisplay(g.cogs, 'USD', d);
-            if (r.fulfillment === 'Seller' && r.order_id) {
-              const o = fbm.get(r.order_id) || { date: d, lines: [] }; o.lines.push([x, q]); fbm.set(r.order_id, o);
-            }
-          } else if (r.type === 'Refund') x.refunds += q;
+      const shipUSD = N(settings.fbm_ship_cost_per_order);   // entered in USD
+      for (const r of await rpcAll('mp_profit_tx', args)) {
+        fxEst += N(r.fx_estimated);
+        if (r.type === 'Transfer') continue;                          // payouts to the bank
+        if (!r.sku) {
+          if (/advertis/i.test(r.label || '')) { adBilled -= N(r.total); continue; }
+          const k = chargeLabel(r.type, r.label);
+          charges.set(k, (charges.get(k) || 0) - N(r.total));
+          continue;
+        }
+        const rev = N(r.product_sales) + N(r.shipping_credits) + N(r.gift_wrap_credits) + N(r.promotional_rebates);
+        const g = matchGroup(r.sku);
+        if (!g) { const u = unmatched.get(r.sku) || { units: 0, revenue: 0 }; if (r.type === 'Order') u.units += N(r.qty); u.revenue += rev; unmatched.set(r.sku, u); continue; }
+        const x = line(r.sku, g);
+        x.revenue += rev;
+        if (r.type === 'Adjustment' || /reimburse/i.test(r.type)) {
+          x.reimb += N(r.total);                                      // Amazon paying you back (or reversing it)
         } else {
-          if (r.type === 'Transfer') continue;                          // payout to the bank, not a cost
-          if (/advertis/i.test(r.description || '')) { adBilled -= conv(r.total, c, d); continue; }   // ad cost comes from the ad report
-          const key = r.description || r.type || 'Other';
-          charges.set(key, (charges.get(key) || 0) - conv(r.total, c, d));
+          x.fees -= N(r.selling_fees) + N(r.fba_fees) + N(r.other_transaction_fees) + N(r.other);
+        }
+        if (r.type === 'Order') {
+          x.units += N(r.qty);
+          if (r.fulfillment === 'Amazon') x.fbaUnits += N(r.qty);
+          x.cogs += g.cogs * N(r.usd_qty);
+          if (r.fulfillment === 'Seller') { x.ship += shipUSD * N(r.fbm_orders); fbmOrders += N(r.fbm_orders) / (MP.convert(1, 'USD', ccy, e) || 1); }
+        } else if (r.type === 'Liquidations') {
+          x.liquidated += N(r.qty);
+          x.cogs += g.cogs * N(r.usd_qty);                            // those units are gone too
+        } else if (r.type === 'Refund' || /a-to-z/i.test(r.type)) {
+          x.refunds += N(r.qty);
         }
       }
-      // FBM shipping: flat cost per order, split across the order's lines by units
-      const shipCost = Number(settings.fbm_ship_cost_per_order || 0);
-      if (shipCost) for (const o of fbm.values()) {
-        fbmOrders++;
-        const amt = MP.toDisplay(shipCost, settings.fbm_ship_currency || 'USD', o.date);
-        const units = o.lines.reduce((a, [, q]) => a + q, 0) || 1;
-        for (const [x, q] of o.lines) x.ship += amt * (q || 0) / units;
-      }
+      if (fxEst) notes.push(`${fxEst.toLocaleString()} ${m.name} transactions used the backup exchange rate because no daily rate was loaded for their dates.`);
     } else {
-      const sales = await fetchPaged(() => sb.from('mp_sales_daily').select('id, date, sku, is_fba, units, revenue, currency')
-        .eq('marketplace', code).gte('date', s).lte('date', e));
       let usedUsFees = false;
-      for (const r of sales) {
-        const rev = conv(r.revenue, r.currency, r.date);
+      for (const r of await rpcAll('mp_profit_sales', args)) {
         const g = matchGroup(r.sku);
-        if (!g) { const u = unmatched.get(r.sku) || { units: 0, revenue: 0 }; u.units += r.units || 0; u.revenue += rev; unmatched.set(r.sku, u); continue; }
+        if (!g) { const u = unmatched.get(r.sku) || { units: 0, revenue: 0 }; u.units += N(r.units); u.revenue += N(r.revenue); unmatched.set(r.sku, u); continue; }
         const x = line(r.sku, g);
-        const q = r.units || 0;
-        const fee = feeFor(g, code, !!r.is_fba, r.date);
+        const q = N(r.units);
+        const fee = feeFor(g, code, !!r.is_fba, e);
         if (!fee.own) usedUsFees = true;
         x.units += q; if (r.is_fba) x.fbaUnits += q;
-        x.revenue += rev;
+        x.revenue += N(r.revenue);
         x.fees += q * fee.amt;
-        x.cogs += q * MP.toDisplay(g.cogs, 'USD', r.date);
-        x.leakage += rev * AMAZON_LEAKAGE_RATE;
+        x.cogs += g.cogs * N(r.usd_units);
+        x.leakage += N(r.revenue) * AMAZON_LEAKAGE_RATE;
       }
-      if (code !== 'US' && usedUsFees) notes.push(`${m.name} fees are estimated with the US fee table converted to ${MP.displayCurrency()}.`);
-      if (spans.length) notes.push(`${m.name} transaction reports cover ${spans.map(([a, b]) => `${fmtLong(a)} – ${fmtLong(b)}`).join(', ')}. Pick a range inside those dates, or upload a report for the rest of this range, to use Amazon's actual fees.`);
-      else notes.push(`Upload a ${m.name} transaction report covering this range to replace the estimated fees and the 8% leakage with Amazon's actual charges.`);
+      if (code !== 'US' && usedUsFees) notes.push(`${m.name} fees are estimated with the US fee table converted to ${ccy}.`);
+      if (spans.length) notes.push(`${m.name} transaction reports cover ${spans.map(([a, b]) => `${fmtLong(a)} – ${fmtLong(b)}`).join(', ')}. Pick a range inside those dates, or upload reports for the rest of this range, to use Amazon's actual fees.`);
+      else notes.push(`Upload ${m.name} transaction reports covering this range to replace the estimated fees and the 8% leakage with Amazon's actual charges.`);
     }
 
-    // Ads: attribute by SKU; spend with no matching product (Sponsored Brands,
-    // unknown SKUs) is spread across products by revenue share.
+    // Ads: by SKU; spend not tied to a known product is spread by revenue share.
     let unattributed = 0, adTotal = 0;
     const spByMonth = {};
     for (const a of ads) {
-      const amt = conv(a.spend, a.currency, a.date);
+      const amt = N(a.spend);
       adTotal += amt;
-      spByMonth[a.date.slice(0, 7)] = (spByMonth[a.date.slice(0, 7)] || 0) + amt;
+      spByMonth[a.month] = (spByMonth[a.month] || 0) + amt;
       const g = matchGroup(a.sku);
-      if (g && (SKU.has(a.sku) || a.sku)) line(a.sku, g).ads += amt; else unattributed += amt;
+      if (g && a.sku) line(a.sku, g).ads += amt; else unattributed += amt;
     }
-    const revTotal = [...SKU.values()].reduce((t, x) => t + Math.max(0, x.revenue), 0);
-    // No ad report loaded for this range but Amazon billed for ads: count the bills instead.
     if (!ads.length && adBilled > 0.005) {
       charges.set('Advertising billed by Amazon', adBilled);
       adTotal += adBilled;
-      notes.push(`No ${m.name} ad report is loaded for this range, so ad cost uses what Amazon billed in the transaction report (billed when spend hits a threshold, so it can lag the actual spend).`);
+      notes.push(`No ${m.name} ad report is loaded for this range, so ad cost uses what Amazon billed in the transaction report (billed in chunks, so it can lag actual spend).`);
+    } else if (ads.length && adBilled > 0.005) {
+      notes.push(`For reference, Amazon billed ${money(adBilled)} for ${m.name} ads in this range; profit uses the ${money(adTotal)} of spend in the ad reports instead, so nothing is counted twice.`);
     }
+    const revTotal = [...SKU.values()].reduce((t, x) => t + Math.max(0, x.revenue), 0);
     if (unattributed && revTotal) for (const x of SKU.values()) x.ads += unattributed * Math.max(0, x.revenue) / revTotal;
     else if (unattributed) charges.set('Ad spend not tied to a product', (charges.get('Ad spend not tied to a product') || 0) + unattributed);
 
@@ -335,9 +351,9 @@
       const amt = prorate(o.month, s, e) * MP.toDisplay(Number(o.amount), o.currency, o.month);
       if (amt) overhead.push({ market: code, label: 'DSP spend', amount: amt, detail: fmtMonth(o.month) });
     }
-    for (const [k, v] of charges) if (Math.abs(v) >= 0.005) overhead.push({ market: code, label: k, amount: v, detail: 'Amazon charge (transaction report)' });
+    for (const [k, v] of charges) if (Math.abs(v) >= 0.005) overhead.push({ market: code, label: k, amount: v, detail: k === 'Ad spend not tied to a product' ? 'No product sales to spread it across' : 'Amazon charge from the transaction report' });
 
-    return { code, mode, txFrom, txTo, skus: [...SKU.values()], unmatched, overhead, adTotal, fbmOrders, notes };
+    return { code, mode, spans, skus: [...SKU.values()], unmatched, overhead, adTotal, fbmOrders, notes };
   }
 
   // Join overlapping or back-to-back date ranges.
@@ -421,9 +437,9 @@
   function setView(v) { VIEW = v; render(window._last.results, window._last.s, window._last.e, window._last.creators); }
 
   function sumLines(lines) {
-    const t = { units: 0, refunds: 0, revenue: 0, fees: 0, cogs: 0, ship: 0, ads: 0, leakage: 0, fbaUnits: 0 };
+    const t = { units: 0, refunds: 0, liquidated: 0, revenue: 0, fees: 0, reimb: 0, cogs: 0, ship: 0, ads: 0, leakage: 0, fbaUnits: 0 };
     for (const x of lines) for (const k of Object.keys(t)) t[k] += x[k] || 0;
-    t.profit = t.revenue - t.fees - t.cogs - t.ship - t.ads - t.leakage;
+    t.profit = t.revenue - t.fees + t.reimb - t.cogs - t.ship - t.ads - t.leakage;
     return t;
   }
 
@@ -469,7 +485,7 @@
     }
 
     // Product profit table
-    const anyLeak = t.leakage > 0, anyShip = t.ship > 0, anyRef = t.refunds > 0;
+    const anyLeak = t.leakage > 0, anyShip = t.ship > 0, anyRef = t.refunds > 0, anyReimb = Math.abs(t.reimb) > 0.005;
     html += `<div class="sec"><h2>Product profit</h2><div class="btn-row" style="display:flex;gap:6px">
       <button class="btn sm ${VIEW === 'group' ? 'on' : ''}" onclick="setView('group')">By product group</button>
       <button class="btn sm ${VIEW === 'sku' ? 'on' : ''}" onclick="setView('sku')">By SKU, per unit</button></div></div>`;
@@ -478,17 +494,17 @@
       const groups = new Map();
       for (const x of allLines) { const k = x.group; (groups.get(k) || groups.set(k, []).get(k)).push(x); }
       const rows = [...groups.entries()].map(([g, ls]) => ({ g, ...sumLines(ls) })).sort((a, b) => b.profit - a.profit);
-      html += `<div class="table-wrap scroll"><table><thead><tr><th>Product group</th><th class="r">Units</th>${anyRef ? '<th class="r">Refunded</th>' : ''}<th class="r">Revenue</th><th class="r">Amazon fees</th><th class="r">COGS</th>${anyShip ? '<th class="r">FBM shipping</th>' : ''}<th class="r">Ad spend</th>${anyLeak ? '<th class="r">Leakage (8%)</th>' : ''}<th class="r">Product profit</th><th class="r">Margin</th><th class="r">Profit / unit</th></tr></thead><tbody>`;
-      for (const r of rows) html += `<tr><td>${esc(r.g)}</td><td class="r">${fmtN(r.units)}</td>${anyRef ? `<td class="r">${fmtN(r.refunds)}</td>` : ''}<td class="r">${money(r.revenue)}</td><td class="r">${money(r.fees)}</td><td class="r">${money(r.cogs)}</td>${anyShip ? `<td class="r">${money(r.ship)}</td>` : ''}<td class="r">${money(r.ads)}</td>${anyLeak ? `<td class="r">${money(r.leakage)}</td>` : ''}<td class="r ${cls(r.profit)}"><b>${money(r.profit)}</b></td><td class="r">${fmtP(r.revenue ? r.profit / r.revenue : null)}</td><td class="r">${r.units ? money(r.profit / r.units, 2) : '—'}</td></tr>`;
-      html += `<tr class="total"><td>Total</td><td class="r">${fmtN(t.units)}</td>${anyRef ? `<td class="r">${fmtN(t.refunds)}</td>` : ''}<td class="r">${money(t.revenue)}</td><td class="r">${money(t.fees)}</td><td class="r">${money(t.cogs)}</td>${anyShip ? `<td class="r">${money(t.ship)}</td>` : ''}<td class="r">${money(t.ads)}</td>${anyLeak ? `<td class="r">${money(t.leakage)}</td>` : ''}<td class="r ${cls(t.profit)}">${money(t.profit)}</td><td class="r">${fmtP(t.revenue ? t.profit / t.revenue : null)}</td><td class="r">${t.units ? money(t.profit / t.units, 2) : '—'}</td></tr>`;
+      html += `<div class="table-wrap scroll"><table><thead><tr><th>Product group</th><th class="r">Units</th>${anyRef ? '<th class="r">Refunded</th>' : ''}<th class="r">Revenue</th><th class="r">Amazon fees</th>${anyReimb ? '<th class="r">Reimbursed</th>' : ''}<th class="r">COGS</th>${anyShip ? '<th class="r">FBM shipping</th>' : ''}<th class="r">Ad spend</th>${anyLeak ? '<th class="r">Leakage (8%)</th>' : ''}<th class="r">Product profit</th><th class="r">Margin</th><th class="r">Profit / unit</th></tr></thead><tbody>`;
+      for (const r of rows) html += `<tr><td>${esc(r.g)}</td><td class="r">${fmtN(r.units)}</td>${anyRef ? `<td class="r">${fmtN(r.refunds)}</td>` : ''}<td class="r">${money(r.revenue)}</td><td class="r">${money(r.fees)}</td>${anyReimb ? `<td class="r">${money(r.reimb)}</td>` : ''}<td class="r">${money(r.cogs)}</td>${anyShip ? `<td class="r">${money(r.ship)}</td>` : ''}<td class="r">${money(r.ads)}</td>${anyLeak ? `<td class="r">${money(r.leakage)}</td>` : ''}<td class="r ${cls(r.profit)}"><b>${money(r.profit)}</b></td><td class="r">${fmtP(r.revenue ? r.profit / r.revenue : null)}</td><td class="r">${r.units ? money(r.profit / r.units, 2) : '—'}</td></tr>`;
+      html += `<tr class="total"><td>Total</td><td class="r">${fmtN(t.units)}</td>${anyRef ? `<td class="r">${fmtN(t.refunds)}</td>` : ''}<td class="r">${money(t.revenue)}</td><td class="r">${money(t.fees)}</td>${anyReimb ? `<td class="r">${money(t.reimb)}</td>` : ''}<td class="r">${money(t.cogs)}</td>${anyShip ? `<td class="r">${money(t.ship)}</td>` : ''}<td class="r">${money(t.ads)}</td>${anyLeak ? `<td class="r">${money(t.leakage)}</td>` : ''}<td class="r ${cls(t.profit)}">${money(t.profit)}</td><td class="r">${fmtP(t.revenue ? t.profit / t.revenue : null)}</td><td class="r">${t.units ? money(t.profit / t.units, 2) : '—'}</td></tr>`;
       html += '</tbody></table></div>';
     } else {
       const bySku = new Map();
       for (const x of allLines) { const k = MP.isAll() ? x.sku : x.sku; (bySku.get(k) || bySku.set(k, []).get(k)).push(x); }
       const rows = [...bySku.entries()].map(([sku, ls]) => ({ sku, group: ls[0].group, ...sumLines(ls) })).sort((a, b) => b.revenue - a.revenue);
       const pu = (v, u) => u ? money(v / u, 2) : '—';
-      html += `<div class="table-wrap scroll"><table><thead><tr><th>SKU</th><th>Group</th><th class="r">Units</th><th class="r">FBA</th><th class="r">Avg price</th><th class="r">Fees / unit</th><th class="r">COGS / unit</th>${anyShip ? '<th class="r">Ship / unit</th>' : ''}<th class="r">Ads / unit</th>${anyLeak ? '<th class="r">Leakage / unit</th>' : ''}<th class="r">Profit / unit</th><th class="r">Product profit</th><th class="r">Margin</th></tr></thead><tbody>`;
-      for (const r of rows) html += `<tr><td class="mono">${esc(r.sku)}</td><td>${esc(r.group)}</td><td class="r">${fmtN(r.units)}</td><td class="r">${fmtN(r.fbaUnits)}</td><td class="r">${pu(r.revenue, r.units)}</td><td class="r">${pu(r.fees, r.units)}</td><td class="r">${pu(r.cogs, r.units)}</td>${anyShip ? `<td class="r">${pu(r.ship, r.units)}</td>` : ''}<td class="r">${pu(r.ads, r.units)}</td>${anyLeak ? `<td class="r">${pu(r.leakage, r.units)}</td>` : ''}<td class="r ${cls(r.profit)}"><b>${pu(r.profit, r.units)}</b></td><td class="r ${cls(r.profit)}">${money(r.profit)}</td><td class="r">${fmtP(r.revenue ? r.profit / r.revenue : null)}</td></tr>`;
+      html += `<div class="table-wrap scroll"><table><thead><tr><th>SKU</th><th>Group</th><th class="r">Units</th><th class="r">FBA</th><th class="r">Avg price</th><th class="r">Fees / unit</th>${anyReimb ? '<th class="r">Reimbursed / unit</th>' : ''}<th class="r">COGS / unit</th>${anyShip ? '<th class="r">Ship / unit</th>' : ''}<th class="r">Ads / unit</th>${anyLeak ? '<th class="r">Leakage / unit</th>' : ''}<th class="r">Profit / unit</th><th class="r">Product profit</th><th class="r">Margin</th></tr></thead><tbody>`;
+      for (const r of rows) html += `<tr><td class="mono">${esc(r.sku)}</td><td>${esc(r.group)}</td><td class="r">${fmtN(r.units)}</td><td class="r">${fmtN(r.fbaUnits)}</td><td class="r">${pu(r.revenue, r.units)}</td><td class="r">${pu(r.fees, r.units)}</td>${anyReimb ? `<td class="r">${pu(r.reimb, r.units)}</td>` : ''}<td class="r">${pu(r.cogs, r.units)}</td>${anyShip ? `<td class="r">${pu(r.ship, r.units)}</td>` : ''}<td class="r">${pu(r.ads, r.units)}</td>${anyLeak ? `<td class="r">${pu(r.leakage, r.units)}</td>` : ''}<td class="r ${cls(r.profit)}"><b>${pu(r.profit, r.units)}</b></td><td class="r ${cls(r.profit)}">${money(r.profit)}</td><td class="r">${fmtP(r.revenue ? r.profit / r.revenue : null)}</td></tr>`;
       html += '</tbody></table></div><div class="notice">Per-unit figures divide each cost by units ordered in the range. Refunds and ads on a SKU with few sales can make one unit look unusually costly.</div>';
     }
 

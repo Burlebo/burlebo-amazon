@@ -100,8 +100,8 @@
   <div id="upload-panel">
     <div class="dropzone" id="dropzone">
       <div class="big">Drag a report here, or click to choose</div>
-      <div class="small">Business Report · Ad report · Transaction report · Inventory Supply at FBA · BURLEBO inventory · Shipment sent (XLSX)</div>
-      <input type="file" id="file-input" accept=".csv,.txt,.xlsx,.xls">
+      <div class="small">Business Report · Ad report · Transaction report · Inventory Supply at FBA · BURLEBO inventory · Shipment sent (XLSX)<br>For backfilling, drop several monthly transaction reports at once.</div>
+      <input type="file" id="file-input" accept=".csv,.txt,.xlsx,.xls" multiple>
     </div>
     <div id="preview"></div>
 
@@ -299,8 +299,8 @@
     dz.addEventListener('click', () => input.click());
     dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
     dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
-    dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
-    input.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); input.value = ''; });
+    dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); handleFiles([...e.dataTransfer.files]); });
+    input.addEventListener('change', e => { handleFiles([...e.target.files]); input.value = ''; });
   }
 
   let CUR = null;  // { file, type, rows, meta }
@@ -382,6 +382,64 @@
     return out;
   }
 
+  function txMeta(file, rows, currency) {
+    const f = colFinder(rows[0]);
+    const cDate = f('date/time'), cType = f('type'), cMk = f('marketplace');
+    const types = {}; let min = null, max = null; const mks = {};
+    for (const r of rows) {
+      const d = parseAmazonDateTime(r[cDate]);
+      if (d) { if (!min || d.date < min) min = d.date; if (!max || d.date > max) max = d.date; }
+      types[r[cType] || '(blank)'] = (types[r[cType] || '(blank)'] || 0) + 1;
+      const code = txMarket(r[cMk]); if (code) mks[code] = (mks[code] || 0) + 1;
+    }
+    // Amazon names these files like "2026Sep1-2026Nov2CustomTransaction.csv".
+    // That range is what the report covers, even on days with no transactions.
+    const fromName = parseTxFilename(file.name);
+    if (fromName) { min = fromName.from; max = fromName.to; }
+    const main = Object.entries(mks).sort((a, b) => b[1] - a[1])[0];
+    const guess = main ? main[0] : (currency && MP.list().find(m => m.currency === currency) || {}).code || 'US';
+    return { min, max, types, guess, fromName };
+  }
+
+  // Several files at once: transaction reports are uploaded one after another.
+  async function handleFiles(files) {
+    if (!files.length) return;
+    if (files.length === 1) return handleFile(files[0]);
+    const box = document.getElementById('preview');
+    files.sort((a, b) => a.name.localeCompare(b.name));
+    box.innerHTML = `<div class="card"><h3>Uploading ${files.length} transaction reports</h3>
+      <div class="sub">One at a time, in order. Rows already loaded are recognised, so re-uploading a month is safe. Leave this page open until it finishes.</div>
+      <table class="split"><thead><tr><th>File</th><th>Marketplace</th><th>Covers</th><th>Result</th></tr></thead><tbody>
+      ${files.map((f, i) => `<tr><td>${esc(f.name)}</td><td id="bm${i}">—</td><td id="bc${i}">—</td><td id="br${i}">Waiting</td></tr>`).join('')}</tbody></table>
+      <div id="status"></div><div class="progress"><div class="bar" id="bar"></div></div></div>`;
+    let ok = 0;
+    for (let i = 0; i < files.length; i++) {
+      const cell = document.getElementById('br' + i);
+      try {
+        cell.textContent = 'Reading…';
+        const text = (await files[i].text()).replace(/^\uFEFF/, '');
+        const tx = splitTransactionReport(text);
+        if (!tx) { cell.textContent = 'Skipped: not a transaction report (upload other reports one at a time)'; continue; }
+        const rows = Papa.parse(tx.body, { header: true, skipEmptyLines: true }).data;
+        const meta = txMeta(files[i], rows, tx.currency);
+        CUR = { file: files[i], type: 'transactions', rows, meta: { currency: tx.currency, from: meta.min, to: meta.max } };
+        const m = MP.market(meta.guess);
+        document.getElementById('bm' + i).textContent = `${m.flag} ${m.code}`;
+        document.getElementById('bc' + i).textContent = `${fmtDate(meta.min)} – ${fmtDate(meta.max)}`;
+        cell.textContent = 'Uploading…';
+        setProgress(0);
+        const msg = await RUN.transactions(meta.guess);
+        cell.innerHTML = msg;
+        ok++;
+      } catch (e) {
+        cell.innerHTML = `<span style="color:var(--red)">Failed: ${esc(e.message)}</span>`;
+      }
+    }
+    status(`Finished: ${ok} of ${files.length} files uploaded.`, ok === files.length ? 'ok' : 'warn');
+    setProgress(100);
+    refreshLists();
+  }
+
   function clearPreview() { CUR = null; document.getElementById('preview').innerHTML = ''; }
 
   function previewCard(title, sub, fieldsHtml, extraHtml = '', buttonLabel = 'Upload') {
@@ -443,21 +501,8 @@
     },
 
     async transactions() {
-      const f = colFinder(CUR.rows[0]);
-      const cDate = f('date/time'), cType = f('type'), cMk = f('marketplace');
-      const types = {}; let min = null, max = null; const mks = {};
-      for (const r of CUR.rows) {
-        const d = parseAmazonDateTime(r[cDate]);
-        if (d) { if (!min || d.date < min) min = d.date; if (!max || d.date > max) max = d.date; }
-        types[r[cType] || '(blank)'] = (types[r[cType] || '(blank)'] || 0) + 1;
-        const code = txMarket(r[cMk]); if (code) mks[code] = (mks[code] || 0) + 1;
-      }
-      // Amazon names these files like "2026Sep1-2026Nov2CustomTransaction.csv".
-      // That range is what the report covers, even on days with no transactions.
-      const fr = parseTxFilename(CUR.file.name);
-      if (fr) { min = fr.from; max = fr.to; }
-      const main = Object.entries(mks).sort((a, b) => b[1] - a[1])[0];
-      const guess = main ? main[0] : (CUR.meta.currency && MP.list().find(m => m.currency === CUR.meta.currency) || {}).code || 'US';
+      const { min, max, types, guess, fromName } = txMeta(CUR.file, CUR.rows, CUR.meta.currency);
+      const fr = fromName;
       CUR.meta.from = min; CUR.meta.to = max;
       const typeRows = Object.entries(types).sort((a, b) => b[1] - a[1])
         .map(([t, n]) => `<tr><td>${esc(t)}</td><td class="r">${n.toLocaleString()}</td></tr>`).join('');
@@ -717,13 +762,13 @@
     },
 
     // ---------------- Transaction report ----------------
-    async transactions() {
-      const fileMk = document.getElementById('mp').value;
+    async transactions(mkOverride) {
+      const fileMk = mkOverride || document.getElementById('mp').value;
       const f = colFinder(CUR.rows[0]);
       const g = n => f(n);
       const NUM = {
         product_sales: 'product sales', product_sales_tax: 'product sales tax', shipping_credits: 'shipping credits',
-        shipping_credits_tax: 'shipping credits tax', gift_wrap_credits: 'gift wrap credits', gift_wrap_credits_tax: 'gift wrap credits tax',
+        shipping_credits_tax: 'shipping credits tax', gift_wrap_credits: 'gift wrap credits', gift_wrap_credits_tax: ['gift wrap credits tax', 'giftwrap credits tax'],
         regulatory_fee: 'Regulatory fee', regulatory_fee_tax: 'Tax on regulatory fee', promotional_rebates: 'promotional rebates',
         promotional_rebates_tax: 'promotional rebates tax', marketplace_withheld_tax: 'marketplace withheld tax',
         selling_fees: 'selling fees', fba_fees: 'fba fees', other_transaction_fees: 'other transaction fees', other: 'other', total: 'total',
@@ -752,7 +797,7 @@
           tax_collection_model: r[C.model] || null, transaction_status: r[C.st] || null,
           release_date: C.rel && r[C.rel] ? (parseAmazonDateTime(r[C.rel]) || {}).ts || null : null,
         };
-        for (const [k, name] of Object.entries(NUM)) row[k] = parseNumber(r[g(name)]);
+        for (const [k, name] of Object.entries(NUM)) { const col = f(...[].concat(name)); row[k] = col ? parseNumber(r[col]) : 0; }
         // Fingerprint everything that identifies the transaction, but not its
         // settlement/status fields, which change when a deferred row is released.
         const ident = [mk, r[C.dt], row.type, row.order_id, rawSku, row.description, row.quantity, ful,
@@ -761,6 +806,11 @@
         row.row_hash = await sha256(ident + '#' + seen[ident]);
         rows.push(row);
       }
+
+      // Each FBM order line's share of its order, so shipping is charged once per order.
+      const fbmQty = {};
+      for (const r of rows) if (r.type === 'Order' && r.fulfillment === 'Seller' && r.order_id) fbmQty[r.order_id] = (fbmQty[r.order_id] || 0) + (r.quantity || 0);
+      for (const r of rows) r.fbm_order_share = r.type === 'Order' && r.fulfillment === 'Seller' && r.order_id && fbmQty[r.order_id] ? (r.quantity || 0) / fbmQty[r.order_id] : null;
 
       status('Checking which rows are already loaded…');
       const existing = new Map();
