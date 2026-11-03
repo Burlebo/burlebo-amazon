@@ -1,0 +1,1138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FBA Shipment — Burlebo Analytics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="/auth.js"></script>
+<style>
+  :root {
+    --bg: #0d0f12; --panel: #14171c; --panel-2: #1a1e25;
+    --border: #252a33; --text: #e8eaed; --text-dim: #8a92a0;
+    --accent: #ff6b35; --green: #4ade80; --red: #f87171; --yellow: #fbbf24; --blue: #38bdf8; --purple: #a78bfa;
+    --radius: 10px; --radius-sm: 6px;
+    --coy: #ff6b35;      --coy-bg: rgba(255, 107, 53, 0.15);
+    --designer: #a78bfa; --designer-bg: rgba(167, 139, 250, 0.15);
+    --admin: #4ade80;    --admin-bg: rgba(74, 222, 128, 0.15);
+    --employee: #38bdf8; --employee-bg: rgba(56, 189, 248, 0.15);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'DM Sans', system-ui, sans-serif; }
+  header { border-bottom: 1px solid var(--border); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; background: var(--panel); }
+  header h1 { font-size: 18px; font-weight: 700; margin: 0; }
+  header nav { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  header nav a { color: var(--text-dim); text-decoration: none; font-size: 14px; font-weight: 500; }
+  header nav a:hover { color: var(--text); }
+  header nav a.active { color: var(--accent); }
+  .role-pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .role-pill:hover { opacity: 0.85; }
+  .role-pill.coy { background: var(--coy-bg); color: var(--coy); }
+  .role-pill.designer { background: var(--designer-bg); color: var(--designer); }
+  .role-pill.admin { background: var(--admin-bg); color: var(--admin); }
+  .role-pill.employee { background: var(--employee-bg); color: var(--employee); }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 28px 32px; }
+  main.hidden { display: none; }
+  .page-title { font-size: 28px; font-weight: 700; margin: 0 0 4px 0; }
+  .page-sub { font-size: 14px; color: var(--text-dim); margin: 0 0 24px 0; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 20px; }
+  .ctrl-label { font-size: 12px; color: var(--text-dim); font-weight: 500; }
+  .btn { padding: 7px 14px; border-radius: var(--radius-sm); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); }
+  .btn:hover { background: #1f242c; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.primary:hover { opacity: 0.92; }
+  .btn.ghost { background: transparent; color: var(--text-dim); }
+  .btn.ghost:hover { color: var(--text); }
+
+  /* 3-card KPI strip */
+  .kpi-row-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+  @media (max-width: 700px) { .kpi-row-3 { grid-template-columns: 1fr; } }
+  .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; position: relative; overflow: hidden; }
+  .kpi::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+  .kpi.orange::before { background: var(--accent); }
+  .kpi.red::before { background: var(--red); }
+  .kpi.blue::before { background: var(--blue); }
+  .kpi-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .kpi-value { font-size: 26px; font-weight: 700; line-height: 1.1; }
+
+  .section-hdr { display: flex; align-items: center; justify-content: space-between; margin: 16px 0 12px; gap: 12px; flex-wrap: wrap; }
+  .section-title { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
+  .section-sub { font-size: 12px; color: var(--text-dim); }
+
+  .table-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 20px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead tr { background: var(--panel-2); }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--text-dim); font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; }
+  td.r, th.r { text-align: right; }
+  td.mono { font-family: 'SF Mono', Menlo, monospace; font-size: 12px; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+  td input.units-input { width: 70px; background: var(--bg); border: 1px solid var(--border); color: var(--text); font-family: 'SF Mono', Menlo, monospace; font-size: 13px; padding: 4px 6px; border-radius: var(--radius-sm); text-align: right; outline: none; }
+  td input.units-input:focus { border-color: var(--accent); }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .badge.green  { background: rgba(74, 222, 128, 0.15);  color: var(--green); }
+  .badge.orange { background: rgba(255, 107, 53, 0.15);  color: var(--accent); }
+  .badge.red    { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+  .badge.blue   { background: rgba(56, 189, 248, 0.15);  color: var(--blue); }
+  .trend { font-family: 'DM Mono', monospace; font-size: 11px; white-space: nowrap; }
+  .trend.down { color: #f87171; }
+  .trend.up   { color: #4ade80; }
+  .trend.flat { color: var(--text-dim); }
+  .trend.new  { color: #38bdf8; }
+  .cut { color: #f87171; font-size: 11px; }
+  .badge.muted  { background: var(--panel-2);            color: var(--text-dim); }
+
+  .row-del { background: none; border: none; color: var(--red); cursor: pointer; font-size: 14px; padding: 2px 6px; }
+  .row-del:hover { color: #ffabab; }
+
+  .empty { text-align: center; padding: 80px 20px; color: var(--text-dim); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+  .empty-icon { font-size: 36px; margin-bottom: 8px; }
+  .empty-title { font-size: 15px; margin-bottom: 4px; color: var(--text); }
+  .empty-sub { font-size: 13px; }
+  .loading { color: var(--text-dim); font-size: 14px; padding: 40px 0; text-align: center; }
+
+  /* Role modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  .modal-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; width: 380px; max-width: calc(100vw - 32px); }
+  .modal-title { font-size: 18px; font-weight: 700; margin: 0 0 6px 0; }
+  .modal-sub { font-size: 13px; color: var(--text-dim); margin: 0 0 20px 0; }
+  .modal-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .modal-option { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 13px 14px; border-radius: var(--radius-sm); font-family: inherit; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+  .modal-option:hover { background: #1f242c; border-color: #2f3540; }
+  .modal-option .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .modal-option .dot.coy { background: var(--coy); }
+  .modal-option .dot.designer { background: var(--designer); }
+  .modal-option .dot.admin { background: var(--admin); }
+  .modal-option .dot.employee { background: var(--employee); }
+  .pw-field { display: none; margin-top: 8px; }
+  .pw-field input { width: 100%; padding: 11px 12px; font-family: 'DM Sans', sans-serif; font-size: 14px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); outline: none; margin-bottom: 8px; }
+  .pw-field input:focus { border-color: var(--accent); }
+  .pw-error { display: none; font-size: 12px; color: var(--red); margin-bottom: 8px; }
+  .pw-row { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+
+<!-- Role modal -->
+
+<header id="app-header" style="display:none;">
+  <h1>Burlebo Analytics</h1>
+  <nav id="main-nav">
+    <!-- Filled in from /nav.html -->
+    <span class="role-pill" id="role-pill"></span>
+  </nav>
+</header>
+
+<main id="app-main" class="hidden">
+  <div class="page-title">FBA Shipment</div>
+  <div class="page-sub">What to send to Amazon based on velocity, current FBA stock, and HQ availability. Velocity counts US and Canada FBA sales, since Canada is supplied from US FBA inventory.</div>
+
+  <div class="controls">
+    <button class="btn primary" onclick="loadShipment()">🔄 Build Shipment</button>
+    <span class="ctrl-label" id="ship-run-date"></span>
+  </div>
+
+  <div id="shipment-content">
+    <div class="empty"><div class="empty-icon">🚚</div><div class="empty-title">Click Build Shipment to generate</div></div>
+  </div>
+</main>
+
+<script>
+  // ============================================================================
+  // Shared nav loader — pulls /nav.html and injects + highlights active link
+  // ============================================================================
+  async function loadSharedNav() {
+    try {
+      const r = await fetch('/nav.html', { cache: 'no-cache' });
+      if (!r.ok) return;
+      const html = await r.text();
+      const nav = document.getElementById('main-nav');
+      const pill = document.getElementById('role-pill');
+      // Insert nav links before the role pill
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const here = window.location.pathname.replace(/\/$/, '') || '/';
+      for (const a of tmp.querySelectorAll('a')) {
+        const href = a.getAttribute('href');
+        if (href === here || (href === '/' && here === '/')) a.classList.add('active');
+        nav.insertBefore(a, pill);
+      }
+    } catch (err) {
+      console.error('Nav load failed:', err);
+    }
+  }
+
+  // ============================================================================
+  // Supabase + auth
+  // ============================================================================
+  const SUPABASE_URL = 'https://uoetojuyzyngfopsmmxk.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvZXRvanV5enluZ2ZvcHNtbXhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzODY3ODIsImV4cCI6MjA5NDk2Mjc4Mn0.FVhs_0waTWIYkTVY2j4HERhlovggIFau07RuBu69M8E';
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+
+  window.onAuthReady = function (r) {
+    loadSharedNav();
+    loadShipment();
+  };
+
+  // ============================================================================
+  // Helpers
+  // ============================================================================
+  function toISO(d) { return d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0'); }
+  function parseISO(s) {
+    if (!s) return null;
+    const parts = String(s).slice(0,10).split('-').map(n => parseInt(n,10));
+    if (parts.length !== 3 || parts.some(isNaN)) return null;
+    return new Date(Date.UTC(parts[0], parts[1]-1, parts[2]));
+  }
+  function daysBetween(a, b) { return Math.round((b.getTime() - a.getTime()) / 86400000); }
+  function fmtN(n) { if (n==null) return '—'; return Math.round(n).toLocaleString(); }
+  function formatLongDate(iso) {
+    const d = parseISO(iso);
+    if (!d) return iso;
+    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  }
+
+  // ============================================================================
+  // Shipment calculator — port of fba_shipment.py
+  // ============================================================================
+  const DOS_THRESHOLD = 35;
+  const STYLE_COMPANION_THRESHOLD = 42;
+  const TARGET_DAYS = 90;
+  const ZERO_INV_DEFAULT = 10;
+
+  // ---- trend handling -------------------------------------------------------
+  // The old calcVelocity blended the 7-day rate in ONLY when it ran hot
+  // (>=125% of the 30-day rate). A SKU whose demand was collapsing kept its
+  // inflated 30-day average, so post-season products kept recommending peak
+  // quantities. These constants make the blend work in both directions and
+  // shrink the cover window on anything that is fading.
+  const TREND_UP           = 1.25;  // 7d/30d at or above this = rising
+  const TREND_DOWN         = 0.75;  // 7d/30d at or below this = declining
+  const RECENT_WEIGHT      = 0.50;  // how much the 7-day rate counts when trending
+  const VEL_FLOOR          = 0.40;  // recent rate can't drag below 40% of the 30-day
+  const VEL_CEIL           = 1.50;  // ...or push above 150%. Stops one odd week whipsawing.
+  const TARGET_DAYS_DECLINING = 50; // cover days for a fading SKU (vs TARGET_DAYS)
+  const TARGET_DAYS_NEW       = 60; // cover days for a SKU with <30 days of history
+  const BLB_FULL_CAP_PCT = 0.90;
+  const BLB_PARTIAL_PCT = 0.80;
+  const OOS_THRESHOLD = 10;
+  const ECOM_POST_SHIPMENT_TARGET_PCT = 0.40;
+
+  // In-flight expiry. Default window is 48h after upload, but each shipment's
+  // duration can be adjusted after the fact via a per-card control. Overrides
+  // are stored in localStorage (this browser only) keyed by shipment_id, as a
+  // total number of hours from upload. Setting 0 expires a shipment immediately.
+  const INFLIGHT_DEFAULT_HOURS = 48;
+  // We fetch a generous window from Supabase, then filter client-side by each
+  // shipment's effective duration — so an override can extend a shipment past
+  // 48h and it'll still be pulled. Anything older than this ceiling is dropped.
+  const INFLIGHT_FETCH_CEILING_HOURS = 24 * 30;
+  const INFLIGHT_OVERRIDE_KEY = 'burlebo_inflight_overrides';
+
+  function getInflightOverrides() {
+    try { return JSON.parse(localStorage.getItem(INFLIGHT_OVERRIDE_KEY)) || {}; }
+    catch { return {}; }
+  }
+  function inflightHoursFor(shipmentId) {
+    const o = getInflightOverrides();
+    const v = o[shipmentId];
+    return (v === undefined || v === null) ? INFLIGHT_DEFAULT_HOURS : v;
+  }
+  function isInflightOverridden(shipmentId) {
+    const o = getInflightOverrides();
+    return o[shipmentId] !== undefined && o[shipmentId] !== null;
+  }
+  function setInflightOverride(shipmentId, hours) {
+    const o = getInflightOverrides();
+    o[shipmentId] = Math.max(0, parseInt(hours, 10) || 0);
+    localStorage.setItem(INFLIGHT_OVERRIDE_KEY, JSON.stringify(o));
+  }
+  function clearInflightOverride(shipmentId) {
+    const o = getInflightOverrides();
+    delete o[shipmentId];
+    localStorage.setItem(INFLIGHT_OVERRIDE_KEY, JSON.stringify(o));
+  }
+
+  function stripFba(sku) {
+    const s = String(sku || '').toUpperCase().trim();
+    if (s.startsWith('FBA2-')) return s.slice(5);
+    if (s.startsWith('FBA-'))  return s.slice(4);
+    return s;
+  }
+  // The Amazon SKU is not always FBA- + Shopify SKU. When Amazon locks a stale
+  // merchant-suggested ASIN onto a SKU, the only fix is relisting under a fresh
+  // SKU (FBA2-). raw_sku from the FBA inventory snapshot is the source of truth;
+  // AMZ_SKU_OVERRIDES covers SKUs not yet present in any snapshot.
+  const AMZ_SKU_OVERRIDES = {
+    'ES-RRG-CDC-S':   'FBA2-ES-RRG-CDC-S',
+    'ES-RRG-CDC-XXL': 'FBA2-ES-RRG-CDC-XXL',
+  };
+  function amazonSku(r) {
+    if (r && r.raw_sku) return String(r.raw_sku).toUpperCase().trim();
+    const shop = String((r && r.shopify_sku) || (r && r.sku) || '').toUpperCase().trim();
+    return AMZ_SKU_OVERRIDES[shop] || ('FBA-' + shop);
+  }
+  function isOneSize(sku) {
+    const s = stripFba(sku);
+    return ['C-', 'BP-', 'DB-'].some(p => s.startsWith(p));
+  }
+  function getStyleKey(sku) {
+    const clean = stripFba(sku);
+    if (['C-', 'DB-', 'BP-'].some(p => clean.startsWith(p))) return clean;
+    const parts = clean.split('-');
+    if (parts.length <= 1) return clean;
+    parts.pop();
+    return parts.join('-');
+  }
+  // 7d/30d ratio. null when there is no 30-day baseline to compare against.
+  function trendRatio(u7, u30, daysInFba) {
+    if (!(daysInFba && daysInFba >= 30)) return null;
+    const daily30 = u30 > 0 ? u30 / 30 : 0;
+    if (daily30 <= 0) return null;
+    const daily7 = u7 > 0 ? u7 / 7 : 0;
+    return daily7 / daily30;
+  }
+  function trendLabel(ratio) {
+    if (ratio === null) return 'new';
+    if (ratio >= TREND_UP)   return 'up';
+    if (ratio <= TREND_DOWN) return 'down';
+    return 'flat';
+  }
+
+  function calcVelocity(u7, u30, daysInFba) {
+    // Not enough history for a 30-day baseline — fall back to the 7-day rate.
+    if (!(daysInFba && daysInFba >= 30)) return u7 > 0 ? u7 / 7 : 0;
+    const daily30 = u30 > 0 ? u30 / 30 : 0;
+    const daily7  = u7  > 0 ? u7  / 7  : 0;
+    if (daily30 <= 0) return daily7;
+    const ratio = daily7 / daily30;
+    // Clamp the recent rate so a single odd week cannot whipsaw the number.
+    const adj7 = Math.max(daily30 * VEL_FLOOR, Math.min(daily7, daily30 * VEL_CEIL));
+    // Blend in BOTH directions. The old version only ever adjusted upward.
+    if (ratio >= TREND_UP || ratio <= TREND_DOWN) {
+      return daily30 * (1 - RECENT_WEIGHT) + adj7 * RECENT_WEIGHT;
+    }
+    return daily30;
+  }
+
+  // Cover window. A fading SKU should not get a full quarter of stock, and a
+  // brand-new SKU should not get 90 days bought off one week of launch spike.
+  function targetDaysFor(u7, u30, daysInFba) {
+    if (!(daysInFba && daysInFba >= 30)) return TARGET_DAYS_NEW;
+    const ratio = trendRatio(u7, u30, daysInFba);
+    if (ratio === null) return TARGET_DAYS;
+    return ratio <= TREND_DOWN ? TARGET_DAYS_DECLINING : TARGET_DAYS;
+  }
+
+  function calcRecommended(inv, dailyVel, targetDays) {
+    if (dailyVel === 0) return inv === 0 ? ZERO_INV_DEFAULT : 0;
+    const target = Math.floor(dailyVel * (targetDays || TARGET_DAYS) + 0.999);
+    return Math.max(0, target - inv);
+  }
+
+  // Old behaviour, kept so the table can show what would have shipped before.
+  function calcVelocityLegacy(u7, u30, daysInFba) {
+    if (daysInFba && daysInFba >= 30) {
+      const daily30 = u30 > 0 ? u30 / 30 : 0;
+      const daily7  = u7  > 0 ? u7  / 7  : 0;
+      if (daily30 <= 0) return 0;
+      let vel = daily30;
+      const adj7 = Math.min(daily7, daily30 * 1.5);
+      if (adj7 >= daily30 * 1.25) vel = daily30 * 0.65 + adj7 * 0.35;
+      return vel;
+    }
+    return u7 > 0 ? u7 / 7 : 0;
+  }
+  function calcRecommendedLegacy(inv, dailyVel) {
+    if (dailyVel === 0) return inv === 0 ? ZERO_INV_DEFAULT : 0;
+    return Math.max(0, Math.floor(dailyVel * TARGET_DAYS + 0.999) - inv);
+  }
+  function calcShipmentQty(recommended, totalAvail) {
+    if (totalAvail < OOS_THRESHOLD) return 0;
+    if (totalAvail >= recommended) {
+      const capped = Math.floor(totalAvail * BLB_FULL_CAP_PCT);
+      return Math.min(recommended, capped);
+    }
+    return Math.floor(totalAvail * BLB_PARTIAL_PCT);
+  }
+  function calcTransfer(ecom, wholesale, unitsToShip) {
+    if (ecom >= unitsToShip) return 0;
+    if (unitsToShip <= 0) return 0;
+    const totalBefore = ecom + wholesale;
+    const remaining = totalBefore - unitsToShip;
+    if (remaining <= 0) return Math.min(wholesale, Math.max(0, unitsToShip - ecom));
+    const targetEcomAfter = Math.round(remaining * ECOM_POST_SHIPMENT_TARGET_PCT);
+    const targetEcomBefore = targetEcomAfter + unitsToShip;
+    let transfer = Math.max(0, targetEcomBefore - ecom);
+    transfer = Math.max(transfer, unitsToShip - ecom);
+    transfer = Math.min(transfer, wholesale);
+    return transfer;
+  }
+
+  // Inventory model (1:1 with fba_shipment.py):
+  //
+  //   inv             = Planning Report "Inventory Supply at FBA" for this SKU.
+  //                     That column ALREADY equals inbound + available - reserved,
+  //                     so it's the single source of truth for FBA stock.
+  //
+  //   in_flight       = Sum of units from any shipments_sent rows for this SKU
+  //                     that are < 48h old. Represents shipments we exported and
+  //                     sent to Amazon but that haven't yet appeared in the
+  //                     Planning Report (which lags ~24h).
+  //
+  //   effective_inv   = inv + in_flight
+  //
+  // The shipment builder uses effective_inv everywhere "what we have at FBA"
+  // matters — including the trigger check, days-of-supply, and recommended math.
+  function buildShipment(fbaRows, inFlightBySku, blbInventoryByShopifySku, salesWindow, latestSalesISO) {
+    const latestDate = latestSalesISO ? parseISO(latestSalesISO) : null;
+
+    // Build per-SKU sales maps. Only FBA-tagged sales feed velocity for the
+    // shipment builder (matches the Python source).
+    const skuDateMap = new Map();
+    const skuFirstDate = new Map();
+    const caDateMap = new Map();   // Canada FBA sales only, for the Canada column
+    for (const r of salesWindow) {
+      if (!r.is_fba) continue;
+      if (r.marketplace === 'CA') {
+        const k = String(r.sku || '').toUpperCase(), ds = String(r.date).slice(0, 10);
+        if (!caDateMap.has(k)) caDateMap.set(k, new Map());
+        caDateMap.get(k).set(ds, (caDateMap.get(k).get(ds) || 0) + (r.units || 0));
+      }
+      const sku = String(r.sku || '').toUpperCase();
+      if (!sku) continue;
+      const dateStr = (r.date instanceof Date) ? toISO(r.date) : String(r.date).slice(0, 10);
+      const d = parseISO(dateStr);
+      if (!d) continue;
+      if (!skuDateMap.has(sku)) skuDateMap.set(sku, new Map());
+      const dm = skuDateMap.get(sku);
+      dm.set(dateStr, (dm.get(dateStr) || 0) + (r.units || 0));
+      const existing = skuFirstDate.get(sku);
+      if (!existing || d < existing) skuFirstDate.set(sku, d);
+    }
+
+    function getShipped(sku, days) {
+      if (!latestDate) return 0;
+      const dm = skuDateMap.get(sku);
+      if (!dm) return 0;
+      let total = 0;
+      for (const [dateStr, units] of dm.entries()) {
+        const d = parseISO(dateStr);
+        if (!d) continue;
+        if (daysBetween(d, latestDate) < days) total += units;
+      }
+      return total;
+    }
+    function getCanada(sku, days) {
+      if (!latestDate) return 0;
+      const dm = caDateMap.get(sku);
+      if (!dm) return 0;
+      let total = 0;
+      for (const [dateStr, units] of dm.entries()) { const d = parseISO(dateStr); if (d && daysBetween(d, latestDate) < days) total += units; }
+      return total;
+    }
+    function getDaysInFba(sku) {
+      const first = skuFirstDate.get(sku);
+      if (!first || !latestDate) return null;
+      return daysBetween(first, latestDate) + 1;
+    }
+
+    // Build the FBA inventory map. Each row uses Planning Report's
+    // `on_hand` column — that's where we stored "Inventory Supply at FBA"
+    // during upload. We key by the cleaned SKU.
+    // Filter: only consider SKUs whose raw form starts FBA-/FBA2-.
+    const invMap = new Map();
+    for (const row of fbaRows) {
+      const raw = String(row.raw_sku || '').toUpperCase();
+      if (!(raw.startsWith('FBA-') || raw.startsWith('FBA2-'))) continue;
+      invMap.set(String(row.sku || '').toUpperCase(), row);
+    }
+
+    // Pass 1: determine triggers
+    const skuRows = [];
+    const triggerStyles = new Set();
+    for (const [sku, invRow] of invMap.entries()) {
+      const shopifySku = stripFba(sku);
+      const fbaStock = invRow.on_hand || 0;
+      const inFlight = inFlightBySku.get(shopifySku.toUpperCase()) || 0;
+      const effective_inv = fbaStock + inFlight;
+
+      const u7 = getShipped(sku, 7);
+      const u30 = getShipped(sku, 30);
+      const daysInFba = getDaysInFba(sku);
+      const daily_vel = calcVelocity(u7, u30, daysInFba);
+      const trend_ratio = trendRatio(u7, u30, daysInFba);
+      const trend = trendLabel(trend_ratio);
+      const target_days = targetDaysFor(u7, u30, daysInFba);
+      const legacy_vel = calcVelocityLegacy(u7, u30, daysInFba);
+
+      let days_supply;
+      if (effective_inv === 0) days_supply = 0;
+      else if (daily_vel > 0)  days_supply = effective_inv / daily_vel;
+      else                      days_supply = null;
+
+      const style_key = getStyleKey(sku);
+      let is_trigger = false;
+      if (effective_inv === 0) {
+        is_trigger = true;
+        triggerStyles.add(style_key);
+      } else if (daily_vel > 0 && days_supply !== null && days_supply < DOS_THRESHOLD) {
+        is_trigger = true;
+        triggerStyles.add(style_key);
+      }
+
+      skuRows.push({
+        amazon_sku: sku, raw_sku: invRow.raw_sku || null, shopify_sku: shopifySku, style_key,
+        inv: fbaStock,
+        in_flight: inFlight,
+        effective_inv,
+        u7, u30, daily_vel, ca30: getCanada(sku, 30),
+        trend, trend_ratio, target_days, legacy_vel,
+        days_supply, is_trigger,
+      });
+    }
+
+    // Pass 2: build shipment list
+    const main = [], oos = [];
+    let totalUnits = 0, totalUnitsOld = 0;
+
+    for (const rec of skuRows) {
+      let include = rec.is_trigger;
+      if (!include && triggerStyles.has(rec.style_key)) {
+        if (rec.daily_vel > 0 && rec.days_supply !== null && rec.days_supply < STYLE_COMPANION_THRESHOLD) {
+          include = true;
+        }
+      }
+      if (!include) continue;
+
+      const recommended = calcRecommended(rec.effective_inv, rec.daily_vel, rec.target_days);
+      const recommendedOld = calcRecommendedLegacy(rec.effective_inv, rec.legacy_vel);
+      if (recommended <= 0) continue;
+
+      const blb = blbInventoryByShopifySku.get(rec.shopify_sku.toUpperCase()) || { ecommerce: 0, wholesale: 0 };
+      const ecom = blb.ecommerce || 0;
+      const wholesale = blb.wholesale || 0;
+      const totalAvail = ecom + wholesale;
+
+      if (totalAvail < OOS_THRESHOLD) {
+        oos.push({ amazon_sku: rec.amazon_sku, raw_sku: rec.raw_sku, shopify_sku: rec.shopify_sku, units_needed: recommended });
+        continue;
+      }
+
+      const unitsToShip = calcShipmentQty(recommended, totalAvail);
+      const blbCanCover = totalAvail >= recommended;
+
+      if (unitsToShip <= 0) {
+        oos.push({ amazon_sku: rec.amazon_sku, raw_sku: rec.raw_sku, shopify_sku: rec.shopify_sku, units_needed: recommended });
+        continue;
+      }
+      if (unitsToShip < 7 && !blbCanCover) {
+        oos.push({ amazon_sku: rec.amazon_sku, raw_sku: rec.raw_sku, shopify_sku: rec.shopify_sku, units_needed: recommended });
+        continue;
+      }
+
+      const isPartial = unitsToShip < recommended;
+      const transfer = calcTransfer(ecom, wholesale, unitsToShip);
+      let status;
+      if (transfer > 0) status = isPartial ? 'Partial Shipment - Needs Transfer' : 'Needs Transfer';
+      else              status = isPartial ? 'Partial Shipment - Good To Go'    : 'Good To Go';
+
+      main.push({
+        amazon_sku: rec.amazon_sku, raw_sku: rec.raw_sku, shopify_sku: rec.shopify_sku,
+        units_to_ship: unitsToShip,
+        status,
+        transfer_amount: transfer > 0 ? transfer : null,
+        ecom, wholesale,
+        recommended,
+        current_inv: rec.inv,
+        in_flight: rec.in_flight,
+        effective_inv: rec.effective_inv,
+        days_supply: rec.days_supply !== null ? Math.round(rec.days_supply * 10) / 10 : 0,
+        daily_vel: Math.round(rec.daily_vel * 1000) / 1000,
+        u30: rec.u30, ca30: rec.ca30,
+        trend: rec.trend,
+        trend_ratio: rec.trend_ratio,
+        target_days: rec.target_days,
+        recommended_old: recommendedOld,
+      });
+      totalUnits += unitsToShip;
+      totalUnitsOld += Math.min(recommendedOld, calcShipmentQty(recommendedOld, totalAvail) || recommendedOld);
+    }
+
+    main.sort((a, b) => a.shopify_sku.localeCompare(b.shopify_sku));
+    oos.sort((a, b) => a.shopify_sku.localeCompare(b.shopify_sku));
+
+    return {
+      main, oos,
+      total_units: totalUnits,
+      total_units_old: totalUnitsOld,
+      run_date: latestSalesISO,
+    };
+  }
+
+  // ============================================================================
+  // Data load
+  // ============================================================================
+  // Fetches all rows from a Supabase table in pages of 1000 (PostgREST's
+  // default cap). Robust to transient errors AND stable across calls:
+  //   - retries each page up to 3 times if `error` is non-null or `data` is null
+  //   - requires an `orderBy` arg (defaults to "id") so pagination is
+  //     deterministic. Without an explicit ORDER BY, PostgreSQL is free to
+  //     return rows in different orders across calls — which produced
+  //     overlapping/missing rows between page fetches and is what caused
+  //     "first click vs second click" to differ on the shipment page.
+  //   - throws if all retries fail
+  async function fetchPaged(table, columns, filters = [], orderBy = 'id') {
+    const all = [];
+    let from = 0;
+    const page = 1000;
+    while (true) {
+      let pageData = null;
+      let lastErr = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        let q = sb.from(table).select(columns);
+        for (const [k, op, v] of filters) q = q[op](k, v);
+        q = q.order(orderBy, { ascending: true }).range(from, from + page - 1);
+        const { data, error } = await q;
+        if (error) {
+          lastErr = error;
+          await new Promise(r => setTimeout(r, 200 * (attempt + 1)));
+          continue;
+        }
+        if (data == null) {
+          lastErr = new Error('Null response from ' + table);
+          await new Promise(r => setTimeout(r, 200 * (attempt + 1)));
+          continue;
+        }
+        pageData = data;
+        break;
+      }
+      if (pageData == null) {
+        throw new Error(`fetchPaged failed on ${table} at offset ${from}: ${lastErr ? lastErr.message : 'unknown error'}`);
+      }
+      if (pageData.length === 0) break;
+      for (const row of pageData) all.push(row);
+      if (pageData.length < page) break;
+      from += page;
+    }
+    return all;
+  }
+
+  async function loadShipment() {
+    document.getElementById('shipment-content').innerHTML = '<div class="loading">Loading FBA stock + sales + HQ inventory + in-flight shipments…</div>';
+
+    try {
+      // 1. Latest sales date — anchors the velocity window
+      const { data: latestSales } = await sb.from('mp_sales_daily').select('date').eq('marketplace', 'US').order('date', { ascending: false }).limit(1);
+      const latestSalesDate = (latestSales && latestSales[0])
+        ? ((latestSales[0].date instanceof Date) ? toISO(latestSales[0].date) : String(latestSales[0].date).slice(0,10))
+        : null;
+
+      // 2. 90 days of sales (FBA-only filtering happens in buildShipment)
+      let salesWindow = [];
+      if (latestSalesDate) {
+        const startDate = parseISO(latestSalesDate);
+        startDate.setUTCDate(startDate.getUTCDate() - 89);
+        // US and Canada: every Canadian FBA sale is ultimately supplied from
+        // US FBA inventory (Remote Fulfillment ships from it; PanAmericas
+        // restocks Canada from it), so Canada FBA demand counts here too.
+        salesWindow = await fetchPaged('mp_sales_daily', 'date, sku, units, is_fba, marketplace',
+          [['marketplace', 'in', ['US', 'CA']], ['date', 'gte', toISO(startDate)], ['date', 'lte', latestSalesDate]]);
+      }
+
+      // 3. FBA inventory — Planning Report only. "on_hand" column holds the
+      //    "Inventory Supply at FBA" value (already includes inbound, excludes reserved).
+      const fba = await fetchPaged('mp_fba_inventory_snapshot',
+        'sku, raw_sku, on_hand', [['marketplace', 'eq', 'US']]);
+
+      // 4. BURLEBO HQ inventory — eCommerce & Wholesale channels at location=HQ.
+      const blb = await fetchPaged('blb_inventory_snapshot',
+        'sku, channel, location, on_hand_avail',
+        [['location', 'eq', 'HQ']]);
+
+      // 5. In-flight shipments. Fetch a generous window, then group by shipment
+      //    and keep only those still active under their effective duration
+      //    (default 48h, or a per-shipment localStorage override). This lets the
+      //    duration be adjusted after the fact — extended, shortened, or set to
+      //    0 to expire immediately.
+      const fetchCutoff = new Date(Date.now() - INFLIGHT_FETCH_CEILING_HOURS * 3600 * 1000).toISOString();
+      const inFlightRowsRaw = await fetchPaged('shipments_sent',
+        'shipment_id, sku, raw_sku, units, filename, uploaded_at',
+        [['uploaded_at', 'gte', fetchCutoff]]);
+
+      // Group every fetched row by shipment first, so expiry is decided per
+      // shipment (using the most recent uploaded_at across its rows).
+      const inFlightGroups = new Map();
+      for (const r of inFlightRowsRaw) {
+        const sid = r.shipment_id || 'unknown';
+        if (!inFlightGroups.has(sid)) {
+          inFlightGroups.set(sid, {
+            shipment_id: sid,
+            filename: r.filename || '(no filename)',
+            uploaded_at: r.uploaded_at,
+            rows: [],
+          });
+        }
+        const grp = inFlightGroups.get(sid);
+        if (r.uploaded_at && r.uploaded_at > grp.uploaded_at) grp.uploaded_at = r.uploaded_at;
+        const sku = String(r.sku || '').toUpperCase();
+        if (sku) grp.rows.push({ sku, raw_sku: r.raw_sku, units: r.units || 0 });
+      }
+
+      // Keep only shipments still inside their (possibly overridden) window, and
+      // build the per-SKU totals from those active shipments only.
+      const nowMs = Date.now();
+      const inFlightBySku = new Map();
+      const inFlightByShipment = new Map();
+      let inFlightActiveRows = 0;
+      for (const grp of inFlightGroups.values()) {
+        const hours = inflightHoursFor(grp.shipment_id);
+        const expiresMs = new Date(grp.uploaded_at).getTime() + hours * 3600 * 1000;
+        if (nowMs >= expiresMs) continue;       // expired under its effective window
+        grp.duration_hours = hours;             // stash for the UI controls
+        grp.overridden = isInflightOverridden(grp.shipment_id);
+        inFlightByShipment.set(grp.shipment_id, grp);
+        for (const r of grp.rows) {
+          inFlightBySku.set(r.sku, (inFlightBySku.get(r.sku) || 0) + (r.units || 0));
+          inFlightActiveRows++;
+        }
+      }
+
+      // Sanity check: if a critical dataset is empty when the others aren't,
+      // refuse to render (catches cold-start fetch races).
+      const diagnostics = {
+        latest_sales_date: latestSalesDate,
+        sales_rows: salesWindow.length,
+        fba_rows: fba.length,
+        blb_rows: blb.length,
+        in_flight_rows: inFlightActiveRows,
+        in_flight_skus: inFlightBySku.size,
+      };
+      const empty = [];
+      if (salesWindow.length === 0 && latestSalesDate) empty.push('sales_daily');
+      if (fba.length === 0) empty.push('fba_planning_snapshot');
+      if (blb.length === 0) empty.push('blb_inventory_snapshot');
+      if (empty.length > 0 && empty.length < 3) {
+        document.getElementById('shipment-content').innerHTML =
+          `<div class="empty"><div class="empty-icon">⚠️</div>
+           <div class="empty-title">Data load was incomplete</div>
+           <div class="empty-sub">These tables came back empty: ${empty.join(', ')}.<br>
+             Click "Build Shipment" again — Supabase may have been warming up.</div>
+           <div style="margin-top:18px;font-family:'DM Mono',monospace;font-size:11px;color:var(--text-dim);">
+             ${Object.entries(diagnostics).map(([k,v]) => `${k}: ${v}`).join('<br>')}
+           </div></div>`;
+        return;
+      }
+
+      // Build BLB HQ index: shopifySku (upper) -> { ecommerce, wholesale }
+      const blbIndex = new Map();
+      for (const r of blb) {
+        const ch = String(r.channel || '').toLowerCase();
+        if (ch !== 'ecommerce' && ch !== 'wholesale') continue;
+        const sku = String(r.sku || '').toUpperCase();
+        if (!sku) continue;
+        const entry = blbIndex.get(sku) || { ecommerce: 0, wholesale: 0 };
+        if (ch === 'ecommerce') entry.ecommerce += (r.on_hand_avail || 0);
+        else                    entry.wholesale += (r.on_hand_avail || 0);
+        blbIndex.set(sku, entry);
+      }
+
+      const result = buildShipment(fba, inFlightBySku, blbIndex, salesWindow, latestSalesDate);
+
+      window._shipData = result;
+      window._shipData.diagnostics = diagnostics;
+      // Sort newest first for display
+      window._shipData.in_flight_shipments = [...inFlightByShipment.values()]
+        .sort((a, b) => String(b.uploaded_at).localeCompare(String(a.uploaded_at)));
+      window._shipRows = result.main.map(r => ({ ...r }));
+
+      renderShipment();
+    } catch (err) {
+      document.getElementById('shipment-content').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error</div><div class="empty-sub">${err.message}</div></div>`;
+    }
+  }
+
+  // ============================================================================
+  // Render
+  // ============================================================================
+  function statusBadge(status) {
+    if (status === 'Good To Go') return `<span class="badge green">${status}</span>`;
+    if (status.includes('Needs Transfer')) return `<span class="badge orange">${status}</span>`;
+    if (status.includes('Partial')) return `<span class="badge blue">${status}</span>`;
+    return `<span class="badge muted">${status}</span>`;
+  }
+
+  function renderShipment() {
+    const d = window._shipData;
+    const rows = window._shipRows;
+    if (!d) return;
+
+    document.getElementById('ship-run-date').textContent = d.run_date ? `Based on sales through: ${formatLongDate(d.run_date)}` : '';
+
+    if (!rows || rows.length === 0) {
+      document.getElementById('shipment-content').innerHTML = `
+        <div class="empty"><div class="empty-icon">🚚</div><div class="empty-title">No shipment needed</div><div class="empty-sub">All FBA SKUs have sufficient stock, or no triggers fired.</div></div>
+        ${d.oos && d.oos.length > 0 ? renderOos(d.oos) : ''}
+      `;
+      return;
+    }
+
+    const totalUnits = rows.reduce((s, r) => s + (parseInt(r.units_to_ship) || 0), 0);
+    const skuCount = rows.length;
+
+    let html = '<div class="kpi-row-3">';
+    html += `<div class="kpi orange"><div class="kpi-label">Total Units to Ship</div><div class="kpi-value" id="ship-total-kpi">${fmtN(totalUnits)}</div></div>`;
+    html += `<div class="kpi red"><div class="kpi-label">SKUs Out of Stock at HQ</div><div class="kpi-value">${fmtN(d.oos?.length || 0)}</div></div>`;
+    html += `<div class="kpi blue"><div class="kpi-label">SKUs in Shipment</div><div class="kpi-value" id="ship-sku-kpi">${fmtN(skuCount)}</div></div>`;
+    html += '</div>';
+
+    // In-flight shipments — only render the section if there are any.
+    if (d.in_flight_shipments && d.in_flight_shipments.length > 0) {
+      html += renderInFlight(d.in_flight_shipments);
+    }
+
+    html += `<div class="section-hdr">
+      <div class="section-title">Shipment List${
+        d.total_units_old && d.total_units_old > d.total_units
+          ? ` <span class="cut" style="font-weight:400;">\u2014 trend adjustment removed ${
+              fmtN(d.total_units_old - d.total_units)} units (${
+              Math.round((1 - d.total_units / d.total_units_old) * 100)}% less than the old formula)</span>`
+          : ''}</div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn" onclick="exportTransfer()">⬇️ Export Transfer</button>
+        <button class="btn primary" onclick="exportShipment()">⬇️ Export XLSX</button>
+      </div>
+    </div>`;
+
+    html += '<div class="table-wrap"><table><thead><tr>';
+    html += '<th style="width:36px;"></th>';
+    html += '<th>Amazon SKU</th><th>Shopify SKU</th><th class="r">Units to Ship</th>';
+    html += '<th>Status</th><th class="r">Transfer</th>';
+    html += '<th class="r">FBA Stock</th><th class="r" title="Units from shipment files still within their in-flight window (default 48h, adjustable per shipment)">In Flight</th>';
+    html += '<th class="r">Days Supply</th>';
+    html += '<th class="r" title="Units sold in the last 30 days (US + Canada FBA). The Canada part is in brackets.">30d Sold</th>';
+    html += '<th title="Last 7 days vs last 30 days. Declining SKUs get a lower velocity AND a shorter cover window.">Trend</th>';
+    html += '<th class="r" title="Days of cover this SKU is being topped up to">Cover</th>';
+    html += '<th class="r">Recommended</th>';
+    html += '<th class="r" title="What the previous formula would have recommended">Was</th>';
+    html += '</tr></thead><tbody id="ship-tbody">';
+
+    rows.forEach((r, i) => {
+      html += `<tr id="ship-row-${i}">
+        <td><button class="row-del" onclick="deleteShipRow(${i})" title="Remove from shipment">✕</button></td>
+        <td class="mono">${amazonSku(r)}</td>
+        <td class="mono">${r.shopify_sku}</td>
+        <td class="r"><input type="number" class="units-input" min="0" value="${r.units_to_ship}" onchange="updateUnits(${i}, this.value)" /></td>
+        <td id="status-${i}">${statusBadge(r.status)}</td>
+        <td class="r" id="transfer-${i}">${r.transfer_amount ? fmtN(r.transfer_amount) : '—'}</td>
+        <td class="r">${fmtN(r.current_inv)}</td>
+        <td class="r" style="color: var(--blue);">${r.in_flight > 0 ? fmtN(r.in_flight) : '—'}</td>
+        <td class="r">${r.days_supply ? r.days_supply.toFixed(1) + 'd' : '0d'}</td>
+        <td class="r">${fmtN(r.u30)}${r.ca30 ? ` <span style="color:var(--text-dim)">(🇨🇦 ${fmtN(r.ca30)})</span>` : ''}</td>
+        <td>${trendCell(r)}</td>
+        <td class="r" style="color: var(--text-dim);">${r.target_days}d</td>
+        <td class="r" style="color: var(--text-dim);">${fmtN(r.recommended)}</td>
+        <td class="r">${r.recommended_old > r.recommended
+            ? `<span class="cut">${fmtN(r.recommended_old)}</span>`
+            : `<span style="color:var(--text-dim)">${fmtN(r.recommended_old)}</span>`}</td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+
+    if (d.oos && d.oos.length > 0) html += renderOos(d.oos);
+
+    // Diagnostic footer — readout of source data sizes so a partial load is
+    // visible. If these numbers differ between two consecutive builds, the
+    // shipment can't be trusted yet.
+    if (d.diagnostics) {
+      const dg = d.diagnostics;
+      html += `<div style="margin-top:32px;padding:12px 16px;border-top:1px solid var(--border);font-family:'DM Mono',monospace;font-size:11px;color:var(--text-dim);">
+        <strong style="color:var(--text-dim);">Data sources used:</strong>
+        sales=${fmtN(dg.sales_rows)} · fba=${fmtN(dg.fba_rows)} · blb=${fmtN(dg.blb_rows)} · in_flight=${fmtN(dg.in_flight_skus)} SKUs (${fmtN(dg.in_flight_rows)} rows) · latest_sales_date=${dg.latest_sales_date || '—'}
+      </div>`;
+    }
+
+    document.getElementById('shipment-content').innerHTML = html;
+  }
+
+  // Trend indicator: arrow + the 7d/30d ratio, so a cut recommendation is
+  // always explainable at a glance.
+  function trendCell(r) {
+    const pct = r.trend_ratio === null ? null : Math.round(r.trend_ratio * 100);
+    const arrow = { up: '\u25B2', down: '\u25BC', flat: '\u2013', new: '\u2726' }[r.trend] || '\u2013';
+    const txt = pct === null ? 'new' : pct + '%';
+    return `<span class="trend ${r.trend}" title="7-day rate is ${txt} of the 30-day rate">${arrow} ${txt}</span>`;
+  }
+
+  function renderOos(oos) {
+    let html = `<div class="section-hdr"><div class="section-title" style="color: var(--red);">⚠️ OOS at HQ — Cannot Ship</div><div class="section-sub">${oos.length} SKU${oos.length===1?'':'s'} need restocking at HQ before they can be sent to FBA</div></div>`;
+    html += '<div class="table-wrap"><table><thead><tr><th>Amazon SKU</th><th>Shopify SKU</th><th class="r">Units Needed</th></tr></thead><tbody>';
+    for (const r of oos) {
+      html += `<tr><td class="mono" style="color: var(--red);">${amazonSku(r)}</td><td class="mono">${r.shopify_sku}</td><td class="r">${fmtN(r.units_needed)}</td></tr>`;
+    }
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  // ============================================================================
+  // In-flight shipments section
+  // ============================================================================
+  // Renders each in-flight shipment as a collapsible card. Header shows
+  // filename, time since upload, hours remaining until 48h expiration,
+  // SKU count, and total units. Click the header to toggle the per-SKU table.
+  function renderInFlight(shipments) {
+    let html = `<div class="section-hdr">
+      <div class="section-title" style="color: var(--blue);">🚚 In-Flight Shipments</div>
+      <div class="section-sub">${shipments.length} shipment${shipments.length===1?'':'s'} currently in flight — units are added to FBA stock for shipment math until each one expires. Adjust a shipment's duration below; set it to 0 to expire it now.</div>
+    </div>`;
+
+    html += '<div class="inflight-list" style="display:flex; flex-direction:column; gap:8px; margin-bottom:24px;">';
+    shipments.forEach((s, i) => {
+      const totalUnits = s.rows.reduce((t, r) => t + (r.units || 0), 0);
+      const skuCount = s.rows.length;
+      const uploadedAgo = formatTimeAgo(s.uploaded_at);
+      const durationHours = (s.duration_hours != null) ? s.duration_hours : INFLIGHT_DEFAULT_HOURS;
+      const hoursLeft = formatHoursLeft(s.uploaded_at, durationHours);
+      const safeId = 'inflight-' + i;
+      const customTag = s.overridden
+        ? ` · <span style="color:var(--blue);">custom ${durationHours}h</span>`
+        : '';
+
+      html += `<div class="inflight-card" style="border:1px solid var(--border); border-radius: var(--radius); background: var(--panel);">
+        <div onclick="toggleInFlight('${safeId}')" style="cursor:pointer; padding:14px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px;">
+          <div style="display:flex; align-items:center; gap:12px; min-width:0; flex:1;">
+            <span id="${safeId}-arrow" style="color:var(--text-dim); font-size:11px; transition:transform 0.15s;">▶</span>
+            <div style="min-width:0;">
+              <div class="mono" style="font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(s.filename)}</div>
+              <div style="font-size:11px; color:var(--text-dim); margin-top:2px;">Uploaded ${uploadedAgo} · ${hoursLeft}${customTag}</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:18px; flex-shrink:0; align-items:center;">
+            <div style="text-align:right;">
+              <div style="font-size:11px; color:var(--text-dim);">SKUs</div>
+              <div style="font-size:14px; font-weight:600;">${fmtN(skuCount)}</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px; color:var(--text-dim);">Units</div>
+              <div style="font-size:14px; font-weight:600; color:var(--blue);">${fmtN(totalUnits)}</div>
+            </div>
+            <div style="text-align:right;" onclick="event.stopPropagation();">
+              <div style="font-size:11px; color:var(--text-dim);">Duration (h)</div>
+              <div style="display:flex; align-items:center; gap:4px; justify-content:flex-end; margin-top:2px;">
+                <input type="number" min="0" id="${safeId}-dur" value="${durationHours}"
+                  style="width:58px; padding:3px 6px; border-radius:var(--radius-sm); border:1px solid var(--border); background:var(--panel-2); color:var(--text); font-family:inherit; font-size:12px; text-align:right;"
+                  onkeydown="if(event.key==='Enter'){applyInflightDuration(${i});}" />
+                <button class="btn" style="padding:3px 9px; font-size:11px;" onclick="applyInflightDuration(${i})">Set</button>
+                ${s.overridden ? `<button class="btn ghost" style="padding:3px 7px; font-size:11px;" title="Reset to ${INFLIGHT_DEFAULT_HOURS}h default" onclick="resetInflightDuration(${i})">↺</button>` : ''}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="${safeId}-body" style="display:none; border-top:1px solid var(--border); padding:0;">
+          <div class="table-wrap" style="margin:0;">
+            <table>
+              <thead><tr><th>Amazon SKU</th><th>Shopify SKU</th><th class="r">Units</th></tr></thead>
+              <tbody>`;
+      const sortedRows = [...s.rows].sort((a, b) => String(a.sku).localeCompare(String(b.sku)));
+      for (const r of sortedRows) {
+        const amzn = amazonSku(r);
+        html += `<tr><td class="mono" style="color:var(--blue);">${escapeHtml(amzn)}</td><td class="mono">${escapeHtml(r.sku)}</td><td class="r">${fmtN(r.units)}</td></tr>`;
+      }
+      html += `</tbody></table></div></div>
+      </div>`;
+    });
+    html += '</div>';
+    return html;
+  }
+
+  // Convert a UTC timestamp to "5m ago" / "3h ago" / "1d ago" style.
+  function formatTimeAgo(iso) {
+    if (!iso) return '—';
+    const then = new Date(iso).getTime();
+    const now = Date.now();
+    const diffMin = Math.floor((now - then) / 60000);
+    if (diffMin < 1) return 'just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDay = Math.floor(diffHr / 24);
+    return `${diffDay}d ago`;
+  }
+
+  // Hours remaining until this in-flight shipment expires. Duration defaults to
+  // 48h after upload but can be overridden per shipment.
+  function formatHoursLeft(iso, durationHours) {
+    if (!iso) return '';
+    const hours = (durationHours != null) ? durationHours : INFLIGHT_DEFAULT_HOURS;
+    const then = new Date(iso).getTime();
+    const expiresAt = then + hours * 3600 * 1000;
+    const remainingMs = expiresAt - Date.now();
+    if (remainingMs <= 0) return '<span style="color:var(--red);">expired</span>';
+    const hoursLeft = Math.floor(remainingMs / 3600000);
+    const minsLeft  = Math.floor((remainingMs % 3600000) / 60000);
+    const display = hoursLeft >= 1 ? `${hoursLeft}h ${minsLeft}m` : `${minsLeft}m`;
+    const color = hoursLeft < 6 ? 'var(--yellow)' : 'var(--text-dim)';
+    return `<span style="color:${color};">${display} until expiration</span>`;
+  }
+
+  // Apply an edited duration (in hours) to an in-flight shipment. Persists to
+  // localStorage and rebuilds so the In Flight column, effective inventory, and
+  // recommendations all reflect the new window. 0 expires it immediately.
+  function applyInflightDuration(i) {
+    const ship = window._shipData && window._shipData.in_flight_shipments
+      ? window._shipData.in_flight_shipments[i] : null;
+    if (!ship) return;
+    const el = document.getElementById('inflight-' + i + '-dur');
+    if (!el) return;
+    const hours = Math.max(0, parseInt(el.value, 10) || 0);
+    setInflightOverride(ship.shipment_id, hours);
+    loadShipment();
+  }
+
+  // Drop the override and return this shipment to the 48h default.
+  function resetInflightDuration(i) {
+    const ship = window._shipData && window._shipData.in_flight_shipments
+      ? window._shipData.in_flight_shipments[i] : null;
+    if (!ship) return;
+    clearInflightOverride(ship.shipment_id);
+    loadShipment();
+  }
+
+  // Toggle the expanded detail table on an in-flight card.
+  function toggleInFlight(id) {
+    const body = document.getElementById(id + '-body');
+    const arrow = document.getElementById(id + '-arrow');
+    if (!body || !arrow) return;
+    const isOpen = body.style.display !== 'none';
+    body.style.display = isOpen ? 'none' : 'block';
+    arrow.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(90deg)';
+  }
+
+  // Defensive HTML escaping for any string we drop into innerHTML.
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function deleteShipRow(i) {
+    if (!confirm('Remove this SKU from the shipment?')) return;
+    window._shipRows.splice(i, 1);
+    renderShipment();
+  }
+
+  function updateUnits(i, val) {
+    const n = parseInt(val) || 0;
+    const row = window._shipRows[i];
+    row.units_to_ship = n;
+
+    // Recompute transfer + status off the new quantity (same logic as build).
+    const transfer = calcTransfer(row.ecom || 0, row.wholesale || 0, n);
+    row.transfer_amount = transfer > 0 ? transfer : null;
+    const isPartial = n < row.recommended;
+    if (transfer > 0) row.status = isPartial ? 'Partial Shipment - Needs Transfer' : 'Needs Transfer';
+    else              row.status = isPartial ? 'Partial Shipment - Good To Go'    : 'Good To Go';
+
+    // Update the Transfer + Status cells in place (no full re-render, keeps focus).
+    const tEl = document.getElementById('transfer-' + i);
+    if (tEl) tEl.textContent = transfer > 0 ? fmtN(transfer) : '—';
+    const sEl = document.getElementById('status-' + i);
+    if (sEl) sEl.innerHTML = statusBadge(row.status);
+
+    // Update total KPI.
+    const total = window._shipRows.reduce((s, r) => s + (parseInt(r.units_to_ship) || 0), 0);
+    const el = document.getElementById('ship-total-kpi');
+    if (el) el.textContent = fmtN(total);
+  }
+
+  // Export to XLSX matching the standard Burlebo FBA shipment format:
+  //
+  //   Row 1:  "WEEKLY FBA SHIPMENT"
+  //   Row 2:  "Shopify Customer: Amazon FBA"
+  //   Row 3:  blank
+  //   Row 4:  blank
+  //   Row 5:  Amazon SKU | Shopify SKU | Units Needed for 90 Day Supply
+  //   Row 6+: data rows (one per SKU with units > 0)
+  //
+  // Column widths: A=30, B=25, C=30.
+  // Styling (bold title, gray header fill) is NOT applied — the free SheetJS
+  // build can't write cell styles. Coy applies formatting by hand after export.
+  function exportShipment() {
+    const rows = window._shipRows;
+    if (!rows || rows.length === 0) return;
+
+    const aoa = [
+      ['WEEKLY FBA SHIPMENT'],
+      ['Shopify Customer: Amazon FBA'],
+      [],
+      [],
+      ['Amazon SKU', 'Shopify SKU', 'Units Needed for 90 Day Supply'],
+    ];
+    // Only export rows where Units to Ship > 0 (matches the example file).
+    for (const r of rows) {
+      const units = parseInt(r.units_to_ship, 10) || 0;
+      if (units <= 0) continue;
+      aoa.push([amazonSku(r), r.shopify_sku, units]);
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 30 }, { wch: 25 }, { wch: 30 }];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Current Shipment');
+
+    const dateStr = window._shipData && window._shipData.run_date
+      ? window._shipData.run_date
+      : toISO(new Date());
+    XLSX.writeFile(wb, `FBA_Shipment_${dateStr}.xlsx`);
+  }
+
+  // Export the transfer file matching the required upload template EXACTLY:
+  //
+  //   Origin location,Destination location,Origin channel,Destination channel,sku,quantity
+  //   HQ,HQ,Wholesale,eCommerce,<shopify_sku>,<transfer_amount>
+  //
+  // Only the sku and quantity change per row; the four leading columns are
+  // always constant. Only rows with a transfer > 0 are included, and the
+  // quantities reflect any edits made to the shipment (transfer_amount is
+  // recomputed live in updateUnits).
+  function exportTransfer() {
+    const rows = window._shipRows;
+    if (!rows || rows.length === 0) return;
+
+    const header = 'Origin location,Destination location,Origin channel,Destination channel,sku,quantity';
+    const lines = [header];
+    for (const r of rows) {
+      const qty = parseInt(r.transfer_amount, 10) || 0;
+      if (qty <= 0) continue;
+      lines.push(`HQ,HQ,Wholesale,eCommerce,${r.shopify_sku},${qty}`);
+    }
+
+    if (lines.length === 1) { alert('No transfers needed — nothing to export.'); return; }
+
+    const dateStr = window._shipData && window._shipData.run_date
+      ? window._shipData.run_date
+      : toISO(new Date());
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `FBA_Transfer_${dateStr}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+</script>
+
+</body>
+</html>

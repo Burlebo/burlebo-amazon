@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FBA Inventory — Burlebo Analytics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/auth.js"></script>
+<style>
+  :root {
+    --bg: #0d0f12; --panel: #14171c; --panel-2: #1a1e25;
+    --border: #252a33; --text: #e8eaed; --text-dim: #8a92a0;
+    --accent: #ff6b35; --green: #4ade80; --red: #f87171; --yellow: #fbbf24; --blue: #38bdf8; --purple: #a78bfa;
+    --radius: 10px; --radius-sm: 6px;
+    --coy: #ff6b35;      --coy-bg: rgba(255, 107, 53, 0.15);
+    --designer: #a78bfa; --designer-bg: rgba(167, 139, 250, 0.15);
+    --admin: #4ade80;    --admin-bg: rgba(74, 222, 128, 0.15);
+    --employee: #38bdf8; --employee-bg: rgba(56, 189, 248, 0.15);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'DM Sans', system-ui, sans-serif; }
+  header { border-bottom: 1px solid var(--border); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; background: var(--panel); }
+  header h1 { font-size: 18px; font-weight: 700; margin: 0; }
+  header nav { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  header nav a { color: var(--text-dim); text-decoration: none; font-size: 14px; font-weight: 500; }
+  header nav a:hover { color: var(--text); }
+  header nav a.active { color: var(--accent); }
+  .role-pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .role-pill:hover { opacity: 0.85; }
+  .role-pill.coy { background: var(--coy-bg); color: var(--coy); }
+  .role-pill.designer { background: var(--designer-bg); color: var(--designer); }
+  .role-pill.admin { background: var(--admin-bg); color: var(--admin); }
+  .role-pill.employee { background: var(--employee-bg); color: var(--employee); }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 28px 32px; }
+  main.hidden { display: none; }
+  .page-title { font-size: 28px; font-weight: 700; margin: 0 0 4px 0; }
+  .page-sub { font-size: 14px; color: var(--text-dim); margin: 0 0 24px 0; }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    padding: 16px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 20px;
+  }
+  .ctrl-label { font-size: 12px; color: var(--text-dim); font-weight: 500; }
+  .controls input[type=text] {
+    padding: 7px 10px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-family: inherit; font-size: 13px; width: 220px;
+  }
+  .controls input:focus { border-color: var(--accent); outline: none; }
+  .btn { padding: 7px 14px; border-radius: var(--radius-sm); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); }
+  .btn:hover { background: #1f242c; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.primary:hover { opacity: 0.92; }
+  .btn.ghost { background: transparent; color: var(--text-dim); }
+  .btn.ghost:hover { color: var(--text); }
+
+  .meta-line { font-size: 12px; color: var(--text-dim); margin-bottom: 10px; }
+
+  /* Product group filter buttons */
+  .inv-group-btn {
+    padding: 7px 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+  }
+  .inv-group-btn:hover { background: #1f242c; }
+  .inv-group-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+  .inv-group-btn .count {
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 2px 6px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 999px;
+  }
+  .inv-group-btn.active .count {
+    color: rgba(255, 255, 255, 0.92);
+    background: rgba(255, 255, 255, 0.18);
+  }
+
+  .table-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead tr { background: var(--panel-2); }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--text-dim); font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; }
+  td.r, th.r { text-align: right; }
+  td.mono { font-family: 'SF Mono', Menlo, monospace; font-size: 12px; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+  .group-spacer td { background: var(--bg); padding: 4px 0; border: none; }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge.green  { background: rgba(74, 222, 128, 0.15);  color: var(--green); }
+  .badge.orange { background: rgba(255, 107, 53, 0.15);  color: var(--accent); }
+  .badge.red    { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+  .badge.muted  { background: var(--panel-2);            color: var(--text-dim); }
+
+  .empty { text-align: center; padding: 80px 20px; color: var(--text-dim); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+  .empty-icon { font-size: 36px; margin-bottom: 8px; }
+  .empty-title { font-size: 15px; margin-bottom: 4px; color: var(--text); }
+  .empty-sub { font-size: 13px; }
+  .loading { color: var(--text-dim); font-size: 14px; padding: 40px 0; text-align: center; }
+
+  /* Role modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  .modal-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; width: 380px; max-width: calc(100vw - 32px); }
+  .modal-title { font-size: 18px; font-weight: 700; margin: 0 0 6px 0; }
+  .modal-sub { font-size: 13px; color: var(--text-dim); margin: 0 0 20px 0; }
+  .modal-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .modal-option { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 13px 14px; border-radius: var(--radius-sm); font-family: inherit; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+  .modal-option:hover { background: #1f242c; border-color: #2f3540; }
+  .modal-option .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .modal-option .dot.coy { background: var(--coy); }
+  .modal-option .dot.designer { background: var(--designer); }
+  .modal-option .dot.admin { background: var(--admin); }
+  .modal-option .dot.employee { background: var(--employee); }
+  .pw-field { display: none; margin-top: 8px; }
+  .pw-field input { width: 100%; padding: 11px 12px; font-family: 'DM Sans', sans-serif; font-size: 14px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); outline: none; margin-bottom: 8px; }
+  .pw-field input:focus { border-color: var(--accent); }
+  .pw-error { display: none; font-size: 12px; color: var(--red); margin-bottom: 8px; }
+  .pw-row { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+
+<!-- Role modal -->
+
+<header id="app-header" style="display:none;">
+  <h1>Burlebo Analytics</h1>
+  <nav id="main-nav">
+    <span class="role-pill" id="role-pill"></span>
+  </nav>
+</header>
+
+<main id="app-main" class="hidden">
+  <div class="page-title">FBA Inventory</div>
+  <div class="page-sub">Current US FBA stock + velocity (T7/T30/T60/T90) + days of supply, grouped by style. Velocity includes Canada FBA sales, since Canada is supplied from US FBA inventory.</div>
+
+  <div class="controls">
+    <button class="btn primary" onclick="loadInventory()">🔄 Refresh</button>
+    <input type="text" id="inv-search" placeholder="Filter SKUs..." oninput="renderInventory()" />
+    <span class="ctrl-label" id="inv-last-date"></span>
+  </div>
+
+  <div id="inventory-content">
+    <div class="empty"><div class="empty-icon">📦</div><div class="empty-title">Click Refresh to load FBA inventory</div></div>
+  </div>
+</main>
+
+<script>
+  // ============================================================================
+  // Shared nav loader — pulls /nav.html and injects + highlights active link
+  // ============================================================================
+  async function loadSharedNav() {
+    try {
+      const r = await fetch('/nav.html', { cache: 'no-cache' });
+      if (!r.ok) return;
+      const html = await r.text();
+      const nav = document.getElementById('main-nav');
+      const pill = document.getElementById('role-pill');
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const here = window.location.pathname.replace(/\/$/, '') || '/';
+      for (const a of tmp.querySelectorAll('a')) {
+        const href = a.getAttribute('href');
+        if (href === here || (href === '/' && here === '/')) a.classList.add('active');
+        nav.insertBefore(a, pill);
+      }
+    } catch (err) {
+      console.error('Nav load failed:', err);
+    }
+  }
+
+  const SUPABASE_URL = 'https://uoetojuyzyngfopsmmxk.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvZXRvanV5enluZ2ZvcHNtbXhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzODY3ODIsImV4cCI6MjA5NDk2Mjc4Mn0.FVhs_0waTWIYkTVY2j4HERhlovggIFau07RuBu69M8E';
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+
+  window.onAuthReady = function (r) {
+    loadSharedNav();
+    loadInventory();
+  };
+
+  // ============================================================================
+  // Helpers (UTC-safe)
+  // ============================================================================
+  function toISO(d) { return d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0'); }
+  function parseISO(s) {
+    if (!s) return null;
+    const parts = String(s).slice(0,10).split('-').map(n => parseInt(n,10));
+    if (parts.length !== 3 || parts.some(isNaN)) return null;
+    return new Date(Date.UTC(parts[0], parts[1]-1, parts[2]));
+  }
+  function daysBetween(a, b) { return Math.round((b.getTime() - a.getTime()) / 86400000); }
+  function fmtN(n) { if (n==null) return '—'; return Math.round(n).toLocaleString(); }
+  // Defensive HTML escape for any user-derived string dropped into innerHTML.
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function formatLongDate(iso) {
+    const d = parseISO(iso);
+    if (!d) return iso;
+    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  }
+
+  // ============================================================================
+  // Product group lookup — for the filter buttons. Loaded once from Supabase
+  // and cached. Each SKU resolves to a single product group via its longest-
+  // matching prefix (e.g. "Y-PH-" wins over "Y-" because we sort longest-first).
+  // ============================================================================
+  let _prefixMap = null;       // [{ prefix, group }] sorted longest first
+
+  async function loadProductGroups() {
+    if (_prefixMap) return;
+    const { data: prefixes } = await sb
+      .from('product_group_prefixes')
+      .select('prefix, product_groups(group_name)');
+    const list = (prefixes || []).map(p => ({
+      prefix: p.prefix.toUpperCase(),
+      group:  p.product_groups?.group_name || 'Other',
+    }));
+    list.sort((a, b) => b.prefix.length - a.prefix.length);
+    _prefixMap = list;
+  }
+
+  function getCategory(sku) {
+    const s = stripFba(sku);
+    if (!_prefixMap) return 'Other';
+    for (const p of _prefixMap) {
+      if (s.startsWith(p.prefix)) return p.group;
+    }
+    return 'Other';
+  }
+
+  // ============================================================================
+  // SKU helpers — ports of fba_inventory_processor.py
+  // ============================================================================
+  const MENS_SIZES  = ["S", "M", "L", "XL", "XXL"];
+  const YOUTH_SIZES = ["2T", "3T", "4T", "XS", "S", "M", "L", "XL"];
+  const BABY_SIZES  = ["NB", "0/3", "3/6", "6/12", "12/18"];
+  const ONE_SIZE_PREFIXES = ["BP-", "C-", "DB-"];
+
+  function stripFba(sku) {
+    const s = String(sku || '').toUpperCase().trim();
+    if (s.startsWith('FBA2-')) return s.slice(5);
+    if (s.startsWith('FBA-'))  return s.slice(4);
+    return s;
+  }
+  function isYouth(sku) { return stripFba(sku).startsWith('Y-'); }
+  function isBaby(sku)  { return stripFba(sku).startsWith('BZU-'); }
+  function isOneSize(sku) {
+    const s = stripFba(sku);
+    return ONE_SIZE_PREFIXES.some(p => s.startsWith(p));
+  }
+  function baseStyle(sku) {
+    const s = stripFba(sku);
+    if (isOneSize(sku)) return s;
+    const idx = s.lastIndexOf('-');
+    return idx !== -1 ? s.slice(0, idx) : s;
+  }
+  function sizeOf(sku) {
+    const s = stripFba(sku);
+    const idx = s.lastIndexOf('-');
+    return idx !== -1 ? s.slice(idx + 1) : '';
+  }
+
+  function calcVelocity(u7, u30, daysInFba) {
+    if (daysInFba && daysInFba >= 30) {
+      const daily30 = u30 > 0 ? u30 / 30 : 0;
+      const daily7  = u7  > 0 ? u7  / 7  : 0;
+      if (daily30 <= 0) return 0;
+      let vel = daily30;
+      const adj7 = Math.min(daily7, daily30 * 1.5);
+      if (adj7 >= daily30 * 1.25) vel = daily30 * 0.65 + adj7 * 0.35;
+      return vel;
+    }
+    return u7 > 0 ? u7 / 7 : 0;
+  }
+
+  // ============================================================================
+  // Data load
+  // ============================================================================
+  async function fetchPaged(table, columns, filters = []) {
+    const all = [];
+    let from = 0;
+    const page = 1000;
+    while (true) {
+      let q = sb.from(table).select(columns);
+      for (const [k, op, v] of filters) q = q[op](k, v);
+      q = q.order('id', { ascending: true }).range(from, from + page - 1);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      if (!data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < page) break;
+      from += page;
+    }
+    return all;
+  }
+
+  async function loadInventory() {
+    document.getElementById('inventory-content').innerHTML = '<div class="loading">Loading inventory + sales history…</div>';
+
+    try {
+      // Find latest sales date first
+      const { data: latestSales } = await sb.from('mp_sales_daily').select('date').eq('marketplace', 'US').order('date', { ascending: false }).limit(1);
+      const latestSalesDate = (latestSales && latestSales[0])
+        ? ((latestSales[0].date instanceof Date) ? toISO(latestSales[0].date) : String(latestSales[0].date).slice(0,10))
+        : null;
+
+      // Pull last 90 days of sales (we only need T7/T30/T60/T90 windows)
+      // Plus a date floor for finding "first_date" — need full history for days_in_fba
+      // We'll do this in two passes to keep payload reasonable:
+      //   1) sales in last 90 days (for shipped counts)
+      //   2) min date per SKU across all history (for days_in_fba)
+      let salesWindow = [];
+      if (latestSalesDate) {
+        const start = parseISO(latestSalesDate);
+        start.setUTCDate(start.getUTCDate() - 89); // last 90 days inclusive
+        const startStr = toISO(start);
+        // US sales plus Canada FBA sales (Canada FBA orders are supplied from
+        // US FBA inventory). Canada FBM orders ship from HQ and are left out.
+        salesWindow = (await fetchPaged('mp_sales_daily', 'date, sku, units, is_fba, marketplace',
+          [['marketplace', 'in', ['US', 'CA']], ['date', 'gte', startStr], ['date', 'lte', latestSalesDate]]))
+          .filter(r => r.marketplace === 'US' || r.is_fba);
+      }
+
+      // FBA stock comes from the Planning Report only — "Inventory Supply at
+      // FBA" (stored as on_hand) is the single source of truth and already
+      // equals inbound + available - reserved.
+      const fba = await fetchPaged('mp_fba_inventory_snapshot',
+        'sku, raw_sku, asin, product_name, on_hand, reserved, unfulfillable, inbound_total', [['marketplace', 'eq', 'US']]);
+
+      // Product-group prefix map — used to tag each style for filter buttons.
+      await loadProductGroups();
+
+      const result = buildInventory(fba, salesWindow, latestSalesDate);
+      window._invData = result;
+      renderInventory();
+    } catch (err) {
+      document.getElementById('inventory-content').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error</div><div class="empty-sub">${err.message}</div></div>`;
+    }
+  }
+
+  function buildInventory(fbaRows, salesWindow, latestSalesISO) {
+    const latestDate = latestSalesISO ? parseISO(latestSalesISO) : null;
+
+    // For each (sku, date) -> units, and first date seen per sku
+    // Sales window only goes back 90 days, so days_in_fba caps at 90.
+    // (This is a reasonable approximation given we only use 90d windows anyway.)
+    const skuDateMap = new Map(); // sku -> Map(date -> units)
+    const skuFirstDate = new Map();
+
+    for (const r of salesWindow) {
+      const sku = String(r.sku || '').toUpperCase();
+      if (!sku) continue;
+      const dateStr = (r.date instanceof Date) ? toISO(r.date) : String(r.date).slice(0, 10);
+      const d = parseISO(dateStr);
+      if (!d) continue;
+
+      if (!skuDateMap.has(sku)) skuDateMap.set(sku, new Map());
+      const dm = skuDateMap.get(sku);
+      dm.set(dateStr, (dm.get(dateStr) || 0) + (r.units || 0));
+
+      const existing = skuFirstDate.get(sku);
+      if (!existing || d < existing) skuFirstDate.set(sku, d);
+    }
+
+    function getShipped(sku, days) {
+      if (!latestDate) return 0;
+      const dm = skuDateMap.get(sku);
+      if (!dm) return 0;
+      let total = 0;
+      for (const [dateStr, units] of dm.entries()) {
+        const d = parseISO(dateStr);
+        if (!d) continue;
+        if (daysBetween(d, latestDate) < days) total += units;
+      }
+      return total;
+    }
+
+    function getDaysInFba(sku) {
+      const first = skuFirstDate.get(sku);
+      if (!first || !latestDate) return null;
+      return daysBetween(first, latestDate) + 1;
+    }
+
+    // Filter FBA rows to only those with FBA- or FBA2- raw_sku prefix
+    const invMap = new Map(); // cleaned sku -> row
+    for (const row of fbaRows) {
+      const raw = String(row.raw_sku || '').toUpperCase();
+      if (!(raw.startsWith('FBA-') || raw.startsWith('FBA2-'))) continue;
+      const sku = String(row.sku || '').toUpperCase();
+      invMap.set(sku, row);
+    }
+
+    // Group SKUs by style
+    const groups = new Map(); // key -> [sku, sku, ...]
+    for (const sku of invMap.keys()) {
+      const clean = stripFba(sku);
+      let key;
+      if (isOneSize(sku))   key = `NOSIZE|${clean}`;
+      else if (isBaby(sku)) key = `BZU|${baseStyle(sku)}`;
+      else if (isYouth(sku))key = `Y|${baseStyle(sku)}`;
+      else                  key = `M|${baseStyle(sku)}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(sku);
+    }
+
+    const outputGroups = [];
+    for (const [key, skus] of groups.entries()) {
+      const groupType = key.split('|')[0];
+      let sizeOrder = null;
+      if (groupType === 'BZU') sizeOrder = BABY_SIZES;
+      else if (groupType === 'Y') sizeOrder = YOUTH_SIZES;
+      else if (groupType === 'M') sizeOrder = MENS_SIZES;
+      // NOSIZE: no size order
+
+      let sortedSkus;
+      if (sizeOrder) {
+        sortedSkus = [...skus].sort((a, b) => {
+          const sa = sizeOf(a), sb = sizeOf(b);
+          const ra = sizeOrder.indexOf(sa); const rb = sizeOrder.indexOf(sb);
+          return (ra === -1 ? 999 : ra) - (rb === -1 ? 999 : rb);
+        });
+      } else {
+        sortedSkus = [...skus].sort();
+      }
+
+      let totalInv = 0;
+      const groupRows = [];
+      for (const sku of sortedSkus) {
+        const invRow = invMap.get(sku) || {};
+        // FBA Stock = on_hand from Planning Report (= "Inventory Supply at FBA").
+        const inv = invRow.on_hand || 0;
+        // Inbound is purely informational — it's already factored into on_hand.
+        const inbound = invRow.inbound_total || 0;
+        totalInv += inv;
+        const u7  = getShipped(sku, 7);
+        const u30 = getShipped(sku, 30);
+        const u60 = getShipped(sku, 60);
+        const u90 = getShipped(sku, 90);
+        const daysInFba = getDaysInFba(sku);
+        const velocity = calcVelocity(u7, u30, daysInFba);
+        let daysSupply;
+        if (inv === 0) daysSupply = 0;
+        else if (velocity > 0) daysSupply = Math.round(inv / velocity * 10) / 10;
+        else daysSupply = null;
+
+        groupRows.push({
+          sku,
+          product_name: invRow.product_name || '',
+          fulfillable: inv,    // displayed as "FBA Stock"
+          reserved: invRow.reserved || 0,
+          unsellable: invRow.unfulfillable || 0,
+          inbound,             // informational only
+          u7, u30, u60, u90,
+          velocity: Math.round(velocity * 1000) / 1000,
+          days_supply: daysSupply,
+          days_in_fba: daysInFba,
+        });
+      }
+
+      // Derive this group's product category from its first SKU. Every SKU
+      // in a group shares the same prefix, so they all map to the same group.
+      const category = groupRows.length > 0 ? getCategory(groupRows[0].sku) : 'Other';
+      outputGroups.push({ key, total_inv: totalInv, rows: groupRows, category });
+    }
+
+    outputGroups.sort((a, b) => a.total_inv - b.total_inv);
+
+    return { groups: outputGroups, last_date: latestSalesISO };
+  }
+
+  // ============================================================================
+  // Render
+  // ============================================================================
+  function dosBadge(dos) {
+    if (dos === null || dos === undefined) return '<span class="badge muted">N/A</span>';
+    if (dos === 0) return '<span class="badge red">OOS</span>';
+    if (dos < 30)  return `<span class="badge red">${Math.round(dos)}d</span>`;
+    if (dos < 60)  return `<span class="badge orange">${Math.round(dos)}d</span>`;
+    return `<span class="badge green">${Math.round(dos)}d</span>`;
+  }
+
+  // Which product-group button is currently selected. 'All' = no filter.
+  // Lives on window so external handlers can read/write it.
+  window._invActiveGroup = window._invActiveGroup || 'All';
+
+  function setInvGroup(g) {
+    window._invActiveGroup = g;
+    renderInventory();
+  }
+
+  function renderInventory() {
+    const d = window._invData;
+    if (!d) return;
+    if (!d.groups || d.groups.length === 0) {
+      document.getElementById('inventory-content').innerHTML = '<div class="empty"><div class="empty-icon">📦</div><div class="empty-title">No FBA inventory data</div><div class="empty-sub">Upload a Daily FBA file first.</div></div>';
+      return;
+    }
+    document.getElementById('inv-last-date').textContent = d.last_date ? `Sales data through: ${formatLongDate(d.last_date)}` : '';
+
+    const query = document.getElementById('inv-search').value.trim().toUpperCase();
+    const active = window._invActiveGroup || 'All';
+
+    // Filter logic:
+    //   - If there's a search query, it OVERRIDES the group filter and
+    //     searches across ALL SKUs (per Coy's spec).
+    //   - Otherwise, the group button filters the visible groups.
+    let filteredGroups;
+    if (query) {
+      filteredGroups = d.groups
+        .map(g => ({ ...g, rows: g.rows.filter(r => r.sku.includes(query)) }))
+        .filter(g => g.rows.length > 0);
+    } else if (active && active !== 'All') {
+      filteredGroups = d.groups.filter(g => g.category === active);
+    } else {
+      filteredGroups = d.groups;
+    }
+
+    const totalRows = filteredGroups.reduce((s, g) => s + g.rows.length, 0);
+
+    // Build group buttons. Each button shows category name + SKU count.
+    // Counts come from the full dataset (d.groups), not the filtered view,
+    // so the numbers don't change as the user clicks around.
+    const groupCounts = new Map();
+    let allCount = 0;
+    for (const g of d.groups) {
+      const cat = g.category || 'Other';
+      const skuCount = g.rows.length;
+      allCount += skuCount;
+      groupCounts.set(cat, (groupCounts.get(cat) || 0) + skuCount);
+    }
+    // Sorted alphabetically for predictable layout, "Other" pushed to end.
+    const sortedCats = [...groupCounts.keys()].sort((a, b) => {
+      if (a === 'Other') return 1;
+      if (b === 'Other') return -1;
+      return a.localeCompare(b);
+    });
+
+    const searchActive = query.length > 0;
+    let buttonsHtml = '<div class="inv-group-buttons" id="inv-group-buttons" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px;">';
+    // "All" button
+    {
+      const isActive = active === 'All' && !searchActive;
+      const cls = isActive ? 'inv-group-btn active' : 'inv-group-btn';
+      buttonsHtml += `<button class="${cls}" data-group="All">All <span class="count">${fmtN(allCount)}</span></button>`;
+    }
+    for (const cat of sortedCats) {
+      const isActive = cat === active && !searchActive;
+      const cls = isActive ? 'inv-group-btn active' : 'inv-group-btn';
+      // Use a data-attribute + delegated click listener instead of inline
+      // onclick — that way special characters like double-quotes ('5.5"')
+      // in the group name don't break the markup.
+      buttonsHtml += `<button class="${cls}" data-group="${escapeHtml(cat)}">${escapeHtml(cat)} <span class="count">${fmtN(groupCounts.get(cat))}</span></button>`;
+    }
+    buttonsHtml += '</div>';
+
+    // Meta line — describe current view
+    let metaSuffix = '';
+    if (searchActive)                            metaSuffix = ' (searching all SKUs)';
+    else if (active && active !== 'All')         metaSuffix = ` (${active})`;
+
+    let html = buttonsHtml;
+    html += `<div class="meta-line">${fmtN(totalRows)} SKU${totalRows===1?'':'s'} shown${metaSuffix}</div>`;
+    html += '<div class="table-wrap"><table><thead><tr>';
+    html += '<th>SKU</th><th class="r">FBA Stock</th><th class="r">Inbound</th>';
+    html += '<th class="r">T7</th><th class="r">T30</th><th class="r">T60</th><th class="r">T90</th>';
+    html += '<th class="r">Vel/Day</th><th class="r">Days Supply</th><th class="r">Days in FBA</th>';
+    html += '</tr></thead><tbody>';
+
+    let isFirstGroup = true;
+    for (const group of filteredGroups) {
+      if (!isFirstGroup) {
+        html += '<tr class="group-spacer"><td colspan="10"></td></tr>';
+      }
+      isFirstGroup = false;
+      for (const row of group.rows) {
+        html += `<tr>
+          <td class="mono">${row.sku}</td>
+          <td class="r" style="font-weight:600;">${fmtN(row.fulfillable)}</td>
+          <td class="r" style="color:var(--blue);">${fmtN(row.inbound)}</td>
+          <td class="r">${fmtN(row.u7)}</td>
+          <td class="r">${fmtN(row.u30)}</td>
+          <td class="r">${fmtN(row.u60)}</td>
+          <td class="r">${fmtN(row.u90)}</td>
+          <td class="r">${row.velocity > 0 ? row.velocity.toFixed(2) : '—'}</td>
+          <td class="r">${dosBadge(row.days_supply)}</td>
+          <td class="r" style="color: var(--text-dim);">${row.days_in_fba ? row.days_in_fba + 'd' : '—'}</td>
+        </tr>`;
+      }
+    }
+    html += '</tbody></table></div>';
+
+    document.getElementById('inventory-content').innerHTML = html;
+
+    // Wire group-button clicks via delegation so we don't have to embed the
+    // group name (which can contain quotes) in an onclick attribute.
+    const btns = document.getElementById('inv-group-buttons');
+    if (btns) {
+      btns.addEventListener('click', (e) => {
+        const target = e.target.closest('.inv-group-btn');
+        if (!target) return;
+        const g = target.getAttribute('data-group');
+        if (g != null) setInvGroup(g);
+      });
+    }
+  }
+</script>
+
+</body>
+</html>
