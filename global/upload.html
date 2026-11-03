@@ -109,6 +109,16 @@
     <div id="missing" class="missing"><div class="msg info">Checking…</div></div>
 
     <h2>Recent uploads</h2>
+    <div class="fields" style="margin-bottom:10px">
+      <div class="field"><label>Report</label><select id="f-type" onchange="resetRecent()">
+        <option value="">All reports</option><option value="business">Business Report</option><option value="ads">Ads</option>
+        <option value="transactions">Transactions</option><option value="fba_inventory">FBA inventory</option>
+        <option value="blb">BURLEBO inventory</option><option value="shipment_sent">Shipment sent</option></select></div>
+      <div class="field"><label>Marketplace</label><select id="f-mp" onchange="resetRecent()"><option value="">All</option></select></div>
+      <div class="field"><label>Covers date</label><input type="date" id="f-date" onchange="resetRecent()"></div>
+      <div class="field"><label>&nbsp;</label><label style="display:flex;align-items:center;gap:6px;font-weight:500;color:var(--text);font-size:13px;margin:8px 0 0">
+        <input type="checkbox" id="f-legacy" onchange="resetRecent()"> Include uploads from the original page</label></div>
+    </div>
     <div id="recent"><div class="msg info">Loading…</div></div>
   </div>
 
@@ -152,6 +162,7 @@
       return;
     }
     await MP.init(sb);
+    document.getElementById('f-mp').innerHTML += MP.list().map(m => `<option value="${m.code}">${m.flag} ${esc(m.name)}</option>`).join('');
     initDropzone();
     refreshLists();
   };
@@ -1009,10 +1020,14 @@
         for (const kind of ['business', 'ads']) {
           const first = firstAny[`${m.code}|${kind}`];
           const label = kind === 'business' ? 'Business Report' : 'Ads';
+          const req = m.settings && m.settings.uploads_required_from;
           let body;
-          if (!first) body = '<div class="none">Nothing uploaded yet.</div>';
+          if (req && req > last) body = `<div class="none">Daily uploads are tracked from ${fmtShort(req)}.</div>`;
+          else if (!first && !req) body = '<div class="none">Nothing uploaded yet.</div>';
           else {
-            const start = first > since ? first : since;
+            // Track from the marketplace's required start date if set, otherwise
+            // from its first upload; never look back more than 45 days.
+            const start = [req || first, since].filter(Boolean).sort().pop();
             const missing = [];
             for (let iso = start; iso <= last; iso = addDayISO(iso)) {
               if (!have.has(`${m.code}|${kind}|${iso}`)) missing.push(iso);
@@ -1031,24 +1046,44 @@
   }
 
   const TYPE_LABEL = { business: 'Business Report', ads: 'Ads', transactions: 'Transactions', fba_inventory: 'FBA inventory', blb: 'BURLEBO inventory', shipment_sent: 'Shipment sent' };
-  const DELETABLE = { business: 'mp_sales_daily', ads: 'mp_ad_daily', transactions: 'mp_transactions' };
-  const LEGACY_TABLE = { business: 'sales_daily', ads: 'ad_daily' };
+  const DELETABLE = { business: 'mp_sales_daily', ads: 'mp_ad_daily', transactions: 'mp_transactions', 'legacy:sales': 'mp_sales_daily', 'legacy:ad': 'mp_ad_daily' };
+  const LEGACY_TABLE = { business: 'sales_daily', ads: 'ad_daily', 'legacy:sales': 'sales_daily', 'legacy:ad': 'ad_daily' };
+  const LEGACY_OF = { business: 'legacy:sales', ads: 'legacy:ad', fba_inventory: 'legacy:fba', blb: 'legacy:blb', shipment_sent: 'legacy:shipment_sent' };
+  const LEGACY_BASE = { sales: 'business', ad: 'ads', fba: 'fba_inventory', blb: 'blb', shipment_sent: 'shipment_sent' };
+
+  let RECENT_LIMIT = 50;
+  function resetRecent() { RECENT_LIMIT = 50; loadRecent(); }
+  function moreRecent() { RECENT_LIMIT += 50; loadRecent(); }
 
   async function loadRecent() {
     const box = document.getElementById('recent');
-    const { data, error } = await sb.from('mp_uploads').select('*').not('report_type', 'like', 'legacy:%')
-      .order('uploaded_at', { ascending: false }).limit(30);
+    const type = document.getElementById('f-type').value, mk = document.getElementById('f-mp').value;
+    const day = document.getElementById('f-date').value, legacy = document.getElementById('f-legacy').checked;
+    let q = sb.from('mp_uploads').select('*');
+    if (type) q = legacy && LEGACY_OF[type] ? q.in('report_type', [type, LEGACY_OF[type]]) : q.eq('report_type', type);
+    else if (!legacy) q = q.not('report_type', 'like', 'legacy:%');
+    if (mk) q = q.eq('marketplace', mk);
+    if (day) q = q.or(`report_date.eq.${day},and(date_from.lte.${day},date_to.gte.${day})`);
+    const { data, error } = await q.order(legacy || day ? 'report_date' : 'uploaded_at', { ascending: false, nullsFirst: false })
+      .order('uploaded_at', { ascending: false }).limit(RECENT_LIMIT + 1);
     if (error) { box.innerHTML = `<div class="msg err">${esc(error.message)}</div>`; return; }
-    if (!data.length) { box.innerHTML = '<div class="msg info">No uploads from this page yet. Uploads made on the original Upload page show up there.</div>'; return; }
+    const more = data.length > RECENT_LIMIT;
+    const rows = data.slice(0, RECENT_LIMIT);
+    if (!rows.length) { box.innerHTML = '<div class="msg info">No uploads match these filters.</div>'; return; }
     box.innerHTML = `<table class="uploads"><thead><tr><th>Report</th><th>Marketplace</th><th>Covers</th><th>File</th><th>Rows</th><th>Uploaded</th><th></th></tr></thead><tbody>
-      ${data.map(u => {
+      ${rows.map(u => {
         const m = u.marketplace ? MP.market(u.marketplace) : null;
+        const base = u.report_type.replace(/^legacy:/, '');
+        const label = TYPE_LABEL[u.report_type] || TYPE_LABEL[LEGACY_BASE[base]] || esc(u.report_type);
         const covers = u.date_from ? `${fmtDate(u.date_from)} – ${fmtDate(u.date_to)}` : u.report_date ? fmtDate(u.report_date) : '—';
-        const del = DELETABLE[u.report_type] || u.status !== 'ok' ? `<button class="btn sm ghost danger" onclick="deleteUpload(${u.id})">${DELETABLE[u.report_type] ? 'Delete' : 'Remove'}</button>` : '';
-        return `<tr><td>${TYPE_LABEL[u.report_type] || esc(u.report_type)}${u.status === 'error' ? ' <span class="tag error">failed</span>' : u.status === 'pending' ? ' <span class="tag">unfinished</span>' : ''}</td>
+        const canDelete = !!DELETABLE[u.report_type];
+        const del = canDelete || u.status !== 'ok' ? `<button class="btn sm ghost danger" onclick="deleteUpload(${u.id})">${canDelete ? 'Delete' : 'Remove'}</button>` : '';
+        return `<tr><td>${label}${u.report_type.startsWith('legacy:') ? ' <span class="tag">original page</span>' : ''}${u.status === 'error' ? ' <span class="tag error">failed</span>' : u.status === 'pending' ? ' <span class="tag">unfinished</span>' : ''}</td>
           <td>${m ? `${m.flag} ${esc(m.code)}` : 'All'}</td><td>${covers}</td><td class="file" title="${esc(u.filename)}">${esc(u.filename)}</td>
           <td>${(u.row_count || 0).toLocaleString()}</td><td>${timeAgo(u.uploaded_at)}</td><td>${del}</td></tr>`;
-      }).join('')}</tbody></table><div id="delete-status"></div>`;
+      }).join('')}</tbody></table>
+      ${more ? '<div style="text-align:center;margin-top:10px"><button class="btn" onclick="moreRecent()">Show 50 more</button></div>' : ''}
+      <div id="delete-status"></div>`;
   }
 
   async function deleteUpload(id) {
@@ -1057,7 +1092,8 @@
     if (!u) return;
     const table = DELETABLE[u.report_type];
     const m = u.marketplace ? MP.market(u.marketplace) : null;
-    const where = `${m ? m.name + ' ' : ''}${TYPE_LABEL[u.report_type] || u.report_type}${u.report_date ? ' for ' + fmtDate(u.report_date) : ''}`;
+    const typeName = TYPE_LABEL[u.report_type] || TYPE_LABEL[LEGACY_BASE[u.report_type.replace(/^legacy:/, '')]] || u.report_type;
+    const where = `${m ? m.name + ' ' : ''}${typeName}${u.report_date ? ' for ' + fmtDate(u.report_date) : ''}`;
     let n = 0;
     if (table) { const { count } = await sb.from(table).select('id', { count: 'exact', head: true }).eq('upload_id', id); n = count || 0; }
     const msg = table
