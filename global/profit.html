@@ -56,7 +56,8 @@
   tr:last-child td { border-bottom: 0; }
   tr.total td { font-weight: 800; background: var(--panel-2); }
   tr.sub td { color: var(--text-dim); }
-  .scroll { }
+  /* theme.css sets .table-wrap to overflow:hidden; let wide tables scroll sideways, never cut rows */
+  html body main .table-wrap { overflow-x: auto; overflow-y: visible; max-height: none; }
   .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-2); }
   .tag.actual { background: var(--green-bg); color: var(--green); border-color: transparent; }
   .tag.est { background: var(--tan-soft); color: var(--text); border-color: var(--tan-edge); }
