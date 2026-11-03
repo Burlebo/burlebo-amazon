@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marketplaces — Burlebo Analytics</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/auth.js"></script>
+<script src="/global/marketplace.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; color: var(--text); }
+  header { padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  header h1 { margin: 0; }
+  header nav { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  header nav a { text-decoration: none; font-size: 14px; }
+  .role-pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .role-pill.coy { background: var(--coy-bg); color: var(--coy); }
+  .role-pill.designer { background: var(--designer-bg); color: var(--designer); }
+  .role-pill.employee { background: var(--employee-bg); color: var(--employee); }
+
+  main { max-width: 1200px; margin: 0 auto; padding: 28px 32px 60px; }
+  main.hidden { display: none; }
+  .page-title { font-size: 28px; font-weight: 800; letter-spacing: -.02em; margin: 0 0 6px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .page-sub { font-size: 14px; color: var(--text-dim); margin: 0 0 24px; max-width: 70ch; }
+
+  .market { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 18px; overflow: hidden; }
+  .market-hd { display: flex; align-items: baseline; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--border); background: var(--panel-2); }
+  .market-hd .flag { font-size: 22px; line-height: 1; }
+  .market-hd .name { font-size: 17px; font-weight: 700; }
+  .market-hd .meta { font-size: 13px; color: var(--text-dim); margin-left: auto; }
+  .market-body { display: grid; grid-template-columns: 1.4fr 1fr; }
+  @media (max-width: 860px) { .market-body { grid-template-columns: 1fr; } }
+  .market-body > div { padding: 14px 18px 18px; }
+  .market-body > div + div { border-left: 1px solid var(--border); }
+  @media (max-width: 860px) { .market-body > div + div { border-left: 0; border-top: 1px solid var(--border); } }
+  h3 { font-size: 13px; font-weight: 700; margin: 4px 0 10px; color: var(--text-dim); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--hairline); white-space: nowrap; }
+  th { color: var(--text-dim); font-weight: 600; font-size: 12px; }
+  td.r, th.r { text-align: right; }
+  tr:last-child td { border-bottom: 0; }
+  .none { color: var(--placeholder); }
+
+  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; font-size: 13px; }
+  dt { color: var(--text-dim); }
+  dd { margin: 0; font-weight: 600; text-align: right; }
+  .note { font-size: 12px; color: var(--text-dim); margin-top: 12px; }
+  .loading { padding: 40px; text-align: center; color: var(--text-dim); }
+  .err { padding: 14px 18px; border-radius: var(--radius-sm); background: var(--red-bg); color: var(--red); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<header id="app-header" style="display:none;">
+  <h1>Burlebo Analytics</h1>
+  <nav id="main-nav">
+    <span class="role-pill" id="role-pill"></span>
+  </nav>
+</header>
+
+<main id="app-main" class="hidden">
+  <div class="page-title">Marketplaces <span id="badge"></span></div>
+  <div class="page-sub">What data and settings each marketplace has. Use the switcher in the header to change marketplace; every new page follows the same choice until you log out.</div>
+  <div id="out"><div class="loading">Loading marketplaces…</div></div>
+</main>
+
+<script>
+  async function loadSharedNav() {
+    try {
+      const r = await fetch('/nav.html', { cache: 'no-cache' });
+      if (!r.ok) return;
+      const html = await r.text();
+      const nav = document.getElementById('main-nav');
+      const pill = document.getElementById('role-pill');
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const here = window.location.pathname.replace(/\/$/, '/index.html');
+      for (const a of tmp.querySelectorAll('a')) {
+        const href = a.getAttribute('href');
+        if (href === here || href === window.location.pathname) a.classList.add('active');
+        nav.insertBefore(a, pill);
+      }
+    } catch (err) { console.error('Nav load failed:', err); }
+  }
+
+  const SUPABASE_URL = 'https://uoetojuyzyngfopsmmxk.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvZXRvanV5enluZ2ZvcHNtbXhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzODY3ODIsImV4cCI6MjA5NDk2Mjc4Mn0.FVhs_0waTWIYkTVY2j4HERhlovggIFau07RuBu69M8E';
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  const DATASETS = [
+    { table: 'mp_sales_daily',            date: 'date',          label: 'Business Report (sales & traffic)' },
+    { table: 'mp_ad_daily',               date: 'date',          label: 'Ads' },
+    { table: 'mp_transactions',           date: 'posted_date',   label: 'Transactions (payments)' },
+    { table: 'mp_fba_inventory_snapshot', date: 'snapshot_date', label: 'FBA inventory' },
+  ];
+
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  const fmtDate = iso => iso ? new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '—';
+  const today = new Date().toISOString().slice(0, 10);
+
+  let COVERAGE = {};   // code -> [{label, rows, first, last}]
+  let AGENCY = {};     // code -> current agency terms row
+
+  async function coverageFor(code) {
+    return Promise.all(DATASETS.map(async d => {
+      const [cnt, first, last] = await Promise.all([
+        sb.from(d.table).select('id', { count: 'exact', head: true }).eq('marketplace', code),
+        sb.from(d.table).select(d.date).eq('marketplace', code).order(d.date, { ascending: true }).limit(1),
+        sb.from(d.table).select(d.date).eq('marketplace', code).order(d.date, { ascending: false }).limit(1),
+      ]);
+      if (cnt.error) throw new Error(`${d.table}: ${cnt.error.message}`);
+      return {
+        label: d.label,
+        rows: cnt.count || 0,
+        first: first.data && first.data[0] ? first.data[0][d.date] : null,
+        last: last.data && last.data[0] ? last.data[0][d.date] : null,
+      };
+    }));
+  }
+
+  async function loadAll() {
+    const list = MP.list();
+    const [cov, terms] = await Promise.all([
+      Promise.all(list.map(m => coverageFor(m.code))),
+      sb.from('mp_agency_terms').select('*').order('start_date', { ascending: false }),
+    ]);
+    list.forEach((m, i) => { COVERAGE[m.code] = cov[i]; });
+    for (const t of (terms.data || [])) {
+      if (!AGENCY[t.marketplace] && (!t.end_date || t.end_date >= today)) AGENCY[t.marketplace] = t;
+    }
+  }
+
+  function settingsHtml(m) {
+    const s = m.settings || {};
+    const t = AGENCY[m.code];
+    // Settings are stored in USD; show them in the current display currency.
+    const show = (usd) => usd == null ? '<span class="none">Not set</span>' : MP.money(MP.convert(Number(usd), 'USD', MP.displayCurrency(), today), 0);
+    const goalRange = s.goal_start ? `${fmtDate(s.goal_start)} – ${fmtDate(s.goal_end)}` : '';
+    let agency = '<span class="none">None</span>';
+    if (t) {
+      agency = t.monthly_estimate != null
+        ? `${show(t.monthly_estimate)}/mo estimate`
+        : `${show(t.monthly_retainer)}/mo + ${(t.sp_spend_pct * 100).toFixed(0)}% SP`;
+    }
+    return `
+      <h3>Settings</h3>
+      <dl>
+        <dt>Annual goal</dt><dd>${show(s.annual_goal)}</dd>
+        ${goalRange ? `<dt>Goal period</dt><dd>${goalRange}</dd>` : ''}
+        <dt>FBM shipping per order</dt><dd>${Number(s.fbm_ship_cost_per_order) ? show(s.fbm_ship_cost_per_order) : '<span class="none">None</span>'}</dd>
+        <dt>Agency</dt><dd>${agency}</dd>
+        ${t ? `<dt>Agency since</dt><dd>${fmtDate(t.start_date)}</dd>` : ''}
+        <dt>Report date default</dt><dd>${s.report_date_offset_days ?? 2} days ago</dd>
+        ${m.currency !== 'USD' ? `<dt>Backup rate</dt><dd>1 ${m.currency} = $${Number(s.fallback_usd_rate || 0).toFixed(4)}</dd>` : ''}
+      </dl>`;
+  }
+
+  function coverageHtml(code) {
+    const rows = COVERAGE[code] || [];
+    return `
+      <h3>Data loaded</h3>
+      <table>
+        <thead><tr><th>Report</th><th class="r">Rows</th><th>From</th><th>Through</th></tr></thead>
+        <tbody>${rows.map(r => r.rows
+          ? `<tr><td>${esc(r.label)}</td><td class="r">${r.rows.toLocaleString()}</td><td>${fmtDate(r.first)}</td><td>${fmtDate(r.last)}</td></tr>`
+          : `<tr><td>${esc(r.label)}</td><td class="r none">0</td><td class="none" colspan="2">Nothing uploaded yet</td></tr>`
+        ).join('')}</tbody>
+      </table>`;
+  }
+
+  function render() {
+    document.getElementById('badge').innerHTML = MP.badgeHtml();
+    MP.resetFxEstimated();
+    const html = MP.codes().map(code => {
+      const m = MP.market(code);
+      return `
+        <section class="market">
+          <div class="market-hd">
+            <span class="flag">${m.flag}</span><span class="name">${esc(m.name)}</span>
+            <span class="meta">${esc(m.amazon_domain)} · sells in ${m.currency} · showing ${MP.displayCurrency()}</span>
+          </div>
+          <div class="market-body">
+            <div>${coverageHtml(code)}</div>
+            <div>${settingsHtml(m)}</div>
+          </div>
+        </section>`;
+    }).join('');
+    const est = MP.fxEstimated();
+    document.getElementById('out').innerHTML = html +
+      (est ? `<div class="note">Converted with the backup exchange rate. Daily rates load with the first transaction upload.</div>` : '');
+  }
+
+  window.onAuthReady = async function () {
+    loadSharedNav();
+    try {
+      await MP.init(sb);
+      await MP.loadFx(today, today);
+      await loadAll();
+      MP.onChange(render);
+      render();
+    } catch (e) {
+      document.getElementById('out').innerHTML = `<div class="err">Couldn't load marketplaces: ${esc(e.message)}</div>`;
+    }
+  };
+</script>
+</body>
+</html>

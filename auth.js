@@ -150,6 +150,10 @@
     '/boxcontent.html':     { coy: 'edit', brooks: 'edit' },
     '/bgwhite.html':        { coy: 'edit', brooks: 'edit' },
     '/tools.html':          { coy: 'edit', brooks: 'edit' },
+    '/sales-lookup.html':   { coy: 'edit' },
+    // Multi-marketplace dashboard (/global/). A page at /global/<name>.html
+    // uses the access of /<name>.html; only the overview needs its own entry.
+    '/global/index.html':   { coy: 'edit' },
   };
 
   // The Assistant (Spencer) mirrors Coy's page access exactly. Adding a page to
@@ -182,15 +186,18 @@
     '/todo.html':           'To-Do',
     '/goal.html':           'Goal Tracker',
     '/settings.html':       'Settings',
+    '/sales-lookup.html':   'Sales Lookup',
+    '/global/index.html':   'Global Overview',
   };
 
   // Build the list of pages a role can access. Returns [{path, label}, …]
   // in nav.html order, so users see the same ordering they're used to.
   const PAGE_ORDER = [
     '/index.html', '/dashboard.html', '/snapshot.html', '/upload.html',
-    '/analytics.html', '/ads.html', '/profit.html', '/inventory.html',
+    '/analytics.html', '/sales-lookup.html', '/ads.html', '/profit.html', '/inventory.html',
     '/shipment.html', '/lookout.html', '/planner.html', '/sku.html', '/report.html',
     '/tools.html', '/audit.html', '/boxcontent.html', '/bgwhite.html', '/cannibalization.html', '/todo.html', '/goal.html', '/settings.html',
+    '/global/index.html',
   ];
   function pagesForRole(role) {
     const out = [];
@@ -233,11 +240,21 @@
   function currentPath() {
     let p = window.location.pathname.replace(/\/+$/, '');
     if (p === '' || p === '/') return '/index.html';
+    if (p === '/global') return '/global/index.html';
     return p;
   }
 
+  // /global/sales-lookup.html -> /sales-lookup.html (same access as the
+  // original page). /global/index.html keeps its own entry.
+  function accessPath(path) {
+    if (path.startsWith('/global/') && path !== '/global/index.html') {
+      return path.slice('/global'.length);
+    }
+    return path;
+  }
+
   function accessFor(role, path) {
-    const entry = ACCESS[path];
+    const entry = ACCESS[accessPath(path)];
     if (!entry) return 'edit'; // pages not listed are open (won't normally happen)
     return entry[role] || null;
   }
@@ -255,6 +272,8 @@
     isAllowed(role, path) { return accessFor(role, path || currentPath()) != null; },
     logout() {
       clearStoredRole();
+      // Marketplace toggle resets on every login (see /global/marketplace.js)
+      try { sessionStorage.removeItem('blb_mp_market'); sessionStorage.removeItem('blb_mp_view'); } catch {}
       window.location.reload();
     },
   };
