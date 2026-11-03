@@ -1,0 +1,901 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Analytics — Burlebo Analytics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/auth.js"></script>
+<script src="/global/marketplace.js"></script>
+<style>
+  :root {
+    --bg: #0d0f12; --panel: #14171c; --panel-2: #1a1e25;
+    --border: #252a33; --text: #e8eaed; --text-dim: #8a92a0;
+    --accent: #ff6b35; --green: #4ade80; --red: #f87171; --yellow: #fbbf24; --blue: #38bdf8; --purple: #a78bfa;
+    --radius: 10px; --radius-sm: 6px;
+    --coy: #ff6b35;      --coy-bg: rgba(255, 107, 53, 0.15);
+    --designer: #a78bfa; --designer-bg: rgba(167, 139, 250, 0.15);
+    --admin: #4ade80;    --admin-bg: rgba(74, 222, 128, 0.15);
+    --employee: #38bdf8; --employee-bg: rgba(56, 189, 248, 0.15);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'DM Sans', system-ui, sans-serif; }
+  header {
+    border-bottom: 1px solid var(--border); padding: 18px 32px;
+    display: flex; align-items: center; justify-content: space-between; background: var(--panel);
+  }
+  header h1 { font-size: 18px; font-weight: 700; margin: 0; }
+  header nav { display: flex; gap: 18px; align-items: center; }
+  header nav a { color: var(--text-dim); text-decoration: none; font-size: 14px; font-weight: 500; }
+  header nav a:hover { color: var(--text); }
+  header nav a.active { color: var(--accent); }
+  .role-pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .role-pill:hover { opacity: 0.85; }
+  .role-pill.coy { background: var(--coy-bg); color: var(--coy); }
+  .role-pill.designer { background: var(--designer-bg); color: var(--designer); }
+  .role-pill.admin { background: var(--admin-bg); color: var(--admin); }
+  .role-pill.employee { background: var(--employee-bg); color: var(--employee); }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 28px 32px; }
+  main.hidden { display: none; }
+  .page-title { font-size: 28px; font-weight: 700; margin: 0 0 4px 0; }
+  .page-sub { font-size: 14px; color: var(--text-dim); margin: 0 0 24px 0; }
+
+  /* Controls */
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    padding: 16px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 20px;
+  }
+  .ctrl-label { font-size: 12px; color: var(--text-dim); font-weight: 500; }
+  .controls input[type=date] {
+    padding: 7px 10px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-family: inherit; font-size: 13px; color-scheme: dark; width: 145px;
+  }
+  .controls input[type=date]:focus { border-color: var(--accent); outline: none; }
+  .divider { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
+  .btn {
+    padding: 7px 14px; border-radius: var(--radius-sm);
+    font-family: inherit; font-size: 13px; font-weight: 600;
+    cursor: pointer; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text);
+  }
+  .btn:hover { background: #1f242c; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.primary:hover { opacity: 0.92; }
+  .btn.sm { padding: 4px 10px; font-size: 12px; }
+  .btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.ghost { background: transparent; color: var(--text-dim); }
+  .btn.ghost:hover { color: var(--text); }
+
+  /* KPI cards */
+  .grid-4 {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;
+  }
+  @media (max-width: 880px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } }
+  .kpi {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px; position: relative; overflow: hidden;
+  }
+  .kpi::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: var(--accent);
+  }
+  .kpi.orange::before { background: var(--accent); }
+  .kpi.blue::before   { background: var(--blue); }
+  .kpi.green::before  { background: var(--green); }
+  .kpi.purple::before { background: var(--purple); }
+  .kpi-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .kpi-value { font-size: 26px; font-weight: 700; line-height: 1.1; letter-spacing: -0.01em; }
+  .kpi-delta { font-size: 12px; font-weight: 600; margin-top: 4px; }
+  .kpi-delta.up   { color: var(--green); }
+  .kpi-delta.down { color: var(--red); }
+  .kpi-delta.flat { color: var(--text-dim); }
+  .kpi-sub { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+
+  /* Cards / sections */
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px;
+  }
+  .card-title { font-size: 13px; font-weight: 600; margin: 0 0 12px 0; color: var(--text); }
+  .section-hdr { display: flex; align-items: baseline; justify-content: space-between; margin: 8px 0 12px; gap: 12px; flex-wrap: wrap; }
+  .section-title { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
+  .section-sub { font-size: 12px; color: var(--text-dim); }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 760px) { .grid-2 { grid-template-columns: 1fr; } }
+  .grid-6-4 { display: grid; grid-template-columns: 1.5fr 1fr; gap: 12px; margin-bottom: 20px; }
+  @media (max-width: 880px) { .grid-6-4 { grid-template-columns: 1fr; } }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-dim); font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; }
+  td.r, th.r { text-align: right; }
+  td.mono { font-family: 'SF Mono', Menlo, monospace; font-size: 12px; }
+  tr:last-child td { border-bottom: none; }
+  .bar-cell { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+  .mini-bar-bg { width: 60px; height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden; }
+  .mini-bar { height: 100%; background: var(--accent); }
+  .scroll-wrap { overflow-y: auto; }
+
+  /* Trend chart */
+  .chart-wrap { background: var(--bg); border-radius: var(--radius-sm); padding: 8px; }
+  svg.trend { display: block; width: 100%; height: 200px; }
+
+  /* Empty + loading */
+  .empty { text-align: center; padding: 80px 20px; color: var(--text-dim); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+  .empty-icon { font-size: 36px; margin-bottom: 8px; }
+  .empty-title { font-size: 15px; margin-bottom: 4px; color: var(--text); }
+  .empty-sub { font-size: 13px; }
+  .loading { color: var(--text-dim); font-size: 14px; padding: 40px 0; text-align: center; }
+
+  /* Role modal */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center; z-index: 1000;
+  }
+  .modal-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; width: 380px; max-width: calc(100vw - 32px); }
+  .modal-title { font-size: 18px; font-weight: 700; margin: 0 0 6px 0; }
+  .modal-sub { font-size: 13px; color: var(--text-dim); margin: 0 0 20px 0; }
+  .modal-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .modal-option {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    padding: 13px 14px; border-radius: var(--radius-sm); font-family: inherit; font-size: 14px;
+    font-weight: 500; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 10px;
+  }
+  .modal-option:hover { background: #1f242c; border-color: #2f3540; }
+  .modal-option .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .modal-option .dot.coy { background: var(--coy); }
+  .modal-option .dot.designer { background: var(--designer); }
+  .modal-option .dot.admin { background: var(--admin); }
+  .modal-option .dot.employee { background: var(--employee); }
+  .pw-field { display: none; margin-top: 8px; }
+  .pw-field input {
+    width: 100%; padding: 11px 12px; font-family: 'DM Sans', sans-serif; font-size: 14px;
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); outline: none; margin-bottom: 8px;
+  }
+  .pw-field input:focus { border-color: var(--accent); }
+  .pw-error { display: none; font-size: 12px; color: var(--red); margin-bottom: 8px; }
+  .pw-row { display: flex; gap: 8px; }
+  /* Goal pace */
+  .pace-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .pace { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+  .pace-hd { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+  .pace-hd .nm { font-weight: 700; font-size: 15px; }
+  .pace-hd .st { margin-left: auto; font-size: 13px; font-weight: 700; }
+  .pace-hd .st.up { color: var(--green); } .pace-hd .st.down { color: var(--red); }
+  .pace-bar { position: relative; height: 10px; background: var(--panel-2); border-radius: 5px; overflow: visible; margin: 6px 0 12px; }
+  .pace-bar .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--tan); border-radius: 5px; }
+  .pace-bar .mark { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--text); }
+  .pace-nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 12px; color: var(--text-dim); }
+  .pace-nums b { display: block; font-size: 15px; color: var(--text); margin-top: 2px; }
+  .pace-note { font-size: 12px; color: var(--text-dim); margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<!-- Role modal -->
+
+<header id="app-header" style="display:none;">
+  <h1>Burlebo Analytics</h1>
+  <nav id="main-nav">
+    <span class="role-pill" id="role-pill"></span>
+  </nav>
+</header>
+
+<main id="app-main" class="hidden">
+  <div class="page-title">Analytics <span id="mp-badge"></span></div>
+  <div class="page-sub">Date range comparison · top styles · product groups · size scale</div>
+
+  <div id="pace"></div>
+
+  <div class="controls">
+    <span class="ctrl-label">Range 1:</span>
+    <input type="date" id="a-start1" />
+    <span class="ctrl-label">to</span>
+    <input type="date" id="a-end1" />
+    <div class="divider"></div>
+    <span class="ctrl-label">Compare:</span>
+    <input type="date" id="a-start2" />
+    <span class="ctrl-label">to</span>
+    <input type="date" id="a-end2" />
+    <button class="btn primary" onclick="loadAnalytics()">Run</button>
+    <div class="divider"></div>
+    <button class="btn sm" onclick="setQuickRange(1)">1D</button>
+    <button class="btn sm" onclick="setQuickRange(7)">7D</button>
+    <button class="btn sm" onclick="setQuickRange(14)">14D</button>
+    <button class="btn sm" onclick="setQuickRange(30)">30D</button>
+    <button class="btn sm" onclick="setQuickRange(90)">90D</button>
+  </div>
+
+  <div id="analytics-content">
+    <div class="empty"><div class="empty-icon">📊</div><div class="empty-title">Select a date range and click Run</div></div>
+  </div>
+</main>
+
+<script>
+  // ============================================================================
+  // Setup + auth (same as other pages)
+  // ============================================================================
+  // ============================================================================
+  // Shared nav loader — pulls /nav.html and injects + highlights active link
+  // ============================================================================
+  async function loadSharedNav() {
+    try {
+      const r = await fetch('/nav.html', { cache: 'no-cache' });
+      if (!r.ok) return;
+      const html = await r.text();
+      const nav = document.getElementById('main-nav');
+      const pill = document.getElementById('role-pill');
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const here = window.location.pathname.replace(/\/$/, '') || '/';
+      for (const a of tmp.querySelectorAll('a')) {
+        const href = a.getAttribute('href');
+        if (href === here || (href === '/' && here === '/')) a.classList.add('active');
+        nav.insertBefore(a, pill);
+      }
+    } catch (err) {
+      console.error('Nav load failed:', err);
+    }
+  }
+
+  const SUPABASE_URL = 'https://uoetojuyzyngfopsmmxk.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvZXRvanV5enluZ2ZvcHNtbXhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzODY3ODIsImV4cCI6MjA5NDk2Mjc4Mn0.FVhs_0waTWIYkTVY2j4HERhlovggIFau07RuBu69M8E';
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+
+  window.onAuthReady = async function (r) {
+    loadSharedNav();
+    await MP.init(sb);
+    document.getElementById('mp-badge').innerHTML = MP.badgeHtml();
+    MP.onChange(async () => {
+      document.getElementById('mp-badge').innerHTML = MP.badgeHtml();
+      _latestSalesDate = null;
+      loadPace();
+      if (window._ranOnce) loadAnalytics(); else initDates();
+    });
+    initDates();
+    loadPace();
+  };
+
+  // ============================================================================
+  // Date helpers (UTC-safe)
+  // ============================================================================
+  function toISO(d) {
+    return d.getUTCFullYear() + '-' +
+      String(d.getUTCMonth()+1).padStart(2,'0') + '-' +
+      String(d.getUTCDate()).padStart(2,'0');
+  }
+  function parseISO(s) {
+    if (!s) return null;
+    const parts = String(s).slice(0,10).split('-').map(n => parseInt(n,10));
+    if (parts.length !== 3 || parts.some(isNaN)) return null;
+    return new Date(Date.UTC(parts[0], parts[1]-1, parts[2]));
+  }
+  function daysBetween(a, b) { return Math.round((b.getTime()-a.getTime())/86400000); }
+  function addDays(d, n) { const x = new Date(d.getTime()); x.setUTCDate(x.getUTCDate()+n); return x; }
+  function todayUTC() { return parseISO(toISO(new Date())); }
+  function fmt(n)  { if (n==null) return '—'; return MP.money(Math.round(n), 0); }
+  function fmtN(n) { if (n==null) return '—'; return Math.round(n).toLocaleString(); }
+  function fmtP(n) { if (n==null) return '—'; return (n*100).toFixed(2)+'%'; }
+
+  // ============================================================================
+  // Initial date pickers — default to latest day available
+  // ============================================================================
+  async function initDates() {
+    const latest = await getLatestSalesDate();
+    const def = latest || toISO(new Date());
+    document.getElementById('a-start1').value = def;
+    document.getElementById('a-end1').value = def;
+  }
+
+  let _latestSalesDate = null; // cached so quick buttons don't re-query every click
+
+  async function getLatestSalesDate() {
+    if (_latestSalesDate) return _latestSalesDate;
+    const { data } = await sb
+      .from('mp_sales_daily').select('date').in('marketplace', MP.codes()).order('date', { ascending: false }).limit(1);
+    if (data && data[0]) {
+      _latestSalesDate = (data[0].date instanceof Date) ? toISO(data[0].date) : String(data[0].date).slice(0,10);
+    }
+    return _latestSalesDate;
+  }
+
+  async function setQuickRange(days) {
+    const latest = await getLatestSalesDate();
+    if (!latest) {
+      document.getElementById('analytics-content').innerHTML =
+        '<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">No sales data uploaded yet.</div></div>';
+      return;
+    }
+    const end = parseISO(latest);
+    const start = addDays(end, -(days-1));
+    document.getElementById('a-start1').value = toISO(start);
+    document.getElementById('a-end1').value = toISO(end);
+    // Auto-fill compare period as the equal-length window immediately before
+    // the primary range (e.g. 30D → compare = days 31-60 ago).
+    const compareEnd   = addDays(start, -1);
+    const compareStart = addDays(compareEnd, -(days-1));
+    document.getElementById('a-start2').value = toISO(compareStart);
+    document.getElementById('a-end2').value   = toISO(compareEnd);
+    loadAnalytics();
+  }
+
+  // ============================================================================
+  // Product group / category mapping (from product_group_prefixes table)
+  // ============================================================================
+  let _prefixMap = null;       // [{ prefix, group }] sorted longest first
+  let _oneSizePrefixes = null; // ['C-', 'BP-', 'DB-']
+
+  async function loadProductGroups() {
+    if (_prefixMap) return;
+    const { data: prefixes } = await sb
+      .from('product_group_prefixes')
+      .select('prefix, product_groups(group_name, is_one_size)');
+    const list = (prefixes || []).map(p => ({
+      prefix: p.prefix.toUpperCase(),
+      group: p.product_groups?.group_name || 'Other',
+      isOneSize: !!p.product_groups?.is_one_size,
+    }));
+    list.sort((a, b) => b.prefix.length - a.prefix.length); // longest first
+    _prefixMap = list;
+    _oneSizePrefixes = list.filter(x => x.isOneSize).map(x => x.prefix);
+  }
+
+  function getCategory(sku) {
+    const s = String(sku || '').toUpperCase();
+    for (const p of _prefixMap) {
+      if (s.startsWith(p.prefix)) return p.group;
+    }
+    return 'Other';
+  }
+
+  function isYouth(sku) { return String(sku || '').toUpperCase().startsWith('Y-'); }
+
+  function getStyle(sku) {
+    const s = String(sku || '').toUpperCase();
+    if (_oneSizePrefixes.some(p => s.startsWith(p))) return s;
+    const idx = s.lastIndexOf('-');
+    return idx !== -1 ? s.slice(0, idx) : s;
+  }
+
+  function getSize(sku) {
+    const s = String(sku || '').toUpperCase();
+    const idx = s.lastIndexOf('-');
+    return idx !== -1 ? s.slice(idx + 1) : '';
+  }
+
+  const MENS_SIZES = ["S", "M", "L", "XL", "XXL", "XXXL"];
+  const YOUTH_SIZES = ["2T", "3T", "4T", "XS", "S", "M", "L", "XL"];
+
+  // ============================================================================
+  // Calculators (port of analytics.py)
+  // ============================================================================
+  function aggregateSummary(rows) {
+    let units = 0, revenue = 0, sessions = 0, fbaUnits = 0, buyBoxNum = 0;
+    for (const r of rows) {
+      units += r.units;
+      revenue += r.revenue;
+      sessions += r.sessions;
+      if (r.is_fba) fbaUnits += r.units;
+      buyBoxNum += r.buy_box_pct * r.sessions;
+    }
+    return {
+      units,
+      revenue: Math.round(revenue * 100) / 100,
+      sessions,
+      conversion: sessions > 0 ? units / sessions : 0,
+      fba_pct: units > 0 ? fbaUnits / units : 0,
+      avg_buy_box: sessions > 0 ? buyBoxNum / sessions : 0,
+    };
+  }
+
+  function topStyles(rows, limit = 20) {
+    const map = new Map();
+    for (const r of rows) {
+      const s = getStyle(r.sku);
+      const v = map.get(s) || { units: 0, sessions: 0, revenue: 0 };
+      v.units += r.units; v.sessions += r.sessions; v.revenue += r.revenue;
+      map.set(s, v);
+    }
+    const arr = [...map.entries()].map(([style, v]) => ({
+      style, units: v.units, sessions: v.sessions,
+      revenue: Math.round(v.revenue * 100) / 100,
+      conversion: v.sessions > 0 ? v.units / v.sessions : 0,
+    }));
+    arr.sort((a, b) => b.units - a.units);
+    return arr.slice(0, limit);
+  }
+
+  function productGroupsAgg(rows) {
+    const map = new Map();
+    for (const r of rows) {
+      const c = getCategory(r.sku);
+      const v = map.get(c) || { units: 0, sessions: 0, revenue: 0 };
+      v.units += r.units; v.sessions += r.sessions; v.revenue += r.revenue;
+      map.set(c, v);
+    }
+    const arr = [...map.entries()].map(([category, v]) => ({
+      category, units: v.units, sessions: v.sessions,
+      revenue: Math.round(v.revenue * 100) / 100,
+      conversion: v.sessions > 0 ? v.units / v.sessions : 0,
+    }));
+    arr.sort((a, b) => b.units - a.units);
+    return arr;
+  }
+
+  function sizeScale(rows) {
+    const mens = {}; const youth = {};
+    for (const r of rows) {
+      const size = getSize(r.sku);
+      if (!size) continue;
+      if (isYouth(r.sku)) {
+        if (YOUTH_SIZES.includes(size)) youth[size] = (youth[size] || 0) + r.units;
+      } else {
+        if (MENS_SIZES.includes(size)) mens[size] = (mens[size] || 0) + r.units;
+      }
+    }
+    const mensTotal = Object.values(mens).reduce((a,b)=>a+b, 0);
+    const youthTotal = Object.values(youth).reduce((a,b)=>a+b, 0);
+    return {
+      mens: Object.fromEntries(MENS_SIZES.map(s => [s, { units: mens[s]||0, pct: mensTotal ? (mens[s]||0)/mensTotal : 0 }])),
+      youth: Object.fromEntries(YOUTH_SIZES.map(s => [s, { units: youth[s]||0, pct: youthTotal ? (youth[s]||0)/youthTotal : 0 }])),
+    };
+  }
+
+  function youthVsMen(rows) {
+    const men = new Map(); const ya = new Map();
+    for (const r of rows) {
+      const s = getStyle(r.sku);
+      const tgt = isYouth(r.sku) ? ya : men;
+      const v = tgt.get(s) || { units: 0, sessions: 0 };
+      v.units += r.units; v.sessions += r.sessions;
+      tgt.set(s, v);
+    }
+    const sumOf = (m, k) => [...m.values()].reduce((a,v)=>a+v[k], 0);
+    const mu = sumOf(men, 'units'), ms = sumOf(men, 'sessions');
+    const yu = sumOf(ya, 'units'),  ys = sumOf(ya, 'sessions');
+    return {
+      men:   { unique_styles: men.size, units: mu, sessions: ms, conversion: ms ? mu/ms : 0 },
+      youth: { unique_styles: ya.size,  units: yu, sessions: ys, conversion: ys ? yu/ys : 0 },
+    };
+  }
+
+  function allSkus(rows, limit = 50) {
+    const map = new Map();
+    for (const r of rows) {
+      const v = map.get(r.sku) || { units: 0, sessions: 0, revenue: 0 };
+      v.units += r.units; v.sessions += r.sessions; v.revenue += r.revenue;
+      map.set(r.sku, v);
+    }
+    const arr = [...map.entries()].map(([sku, v]) => ({
+      sku, units: v.units, sessions: v.sessions,
+      revenue: Math.round(v.revenue * 100) / 100,
+      conversion: v.sessions > 0 ? v.units / v.sessions : 0,
+    })).filter(x => x.units > 0);
+    arr.sort((a, b) => b.units - a.units);
+    return arr.slice(0, limit);
+  }
+
+  function dailyTrend(rows) {
+    const map = new Map();
+    for (const r of rows) {
+      const v = map.get(r.date) || { units: 0, sessions: 0, revenue: 0 };
+      v.units += r.units; v.sessions += r.sessions; v.revenue += r.revenue;
+      map.set(r.date, v);
+    }
+    const arr = [...map.entries()].map(([date, v]) => ({
+      date, units: v.units, sessions: v.sessions,
+      revenue: Math.round(v.revenue * 100) / 100,
+      conversion: v.sessions > 0 ? v.units / v.sessions : 0,
+    }));
+    arr.sort((a, b) => a.date.localeCompare(b.date));
+    return arr;
+  }
+
+  // ============================================================================
+  // Data load
+  // ============================================================================
+  async function fetchRange(start, end) {
+    // PostgREST has a 1000-row default cap; we paginate.
+    const all = [];
+    let from = 0;
+    const page = 1000;
+    await MP.loadFx(start, end);
+    while (true) {
+      const { data, error } = await sb
+        .from('mp_sales_daily')
+        .select('id, date, marketplace, currency, sku, is_fba, units, revenue, sessions, page_views, buy_box_pct')
+        .in('marketplace', MP.codes())
+        .gte('date', start)
+        .lte('date', end)
+        .order('id', { ascending: true })
+        .range(from, from + page - 1);
+      if (error) throw new Error(error.message);
+      if (!data || data.length === 0) break;
+      for (const r of data) {
+        all.push({
+          date: (r.date instanceof Date) ? toISO(r.date) : String(r.date).slice(0,10),
+          sku: r.sku,
+          marketplace: r.marketplace,
+          is_fba: !!r.is_fba,
+          units: r.units || 0,
+          // stored in the marketplace's own currency; shown in the display currency
+          revenue: MP.toDisplay(parseFloat(r.revenue || 0), r.currency, r.date),
+          sessions: r.sessions || 0,
+          page_views: r.page_views || 0,
+          buy_box_pct: parseFloat(r.buy_box_pct || 0),
+        });
+      }
+      if (data.length < page) break;
+      from += page;
+    }
+    return all;
+  }
+
+  async function loadAnalytics() {
+    const s1 = document.getElementById('a-start1').value;
+    const e1 = document.getElementById('a-end1').value;
+    const s2 = document.getElementById('a-start2').value;
+    const e2 = document.getElementById('a-end2').value;
+    if (!s1 || !e1) {
+      document.getElementById('analytics-content').innerHTML = '<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Pick a start and end date for Range 1.</div></div>';
+      return;
+    }
+
+    document.getElementById('analytics-content').innerHTML = '<div class="loading">Loading data…</div>';
+    window._ranOnce = true;
+
+    try {
+      await loadProductGroups();
+      const rows1 = await fetchRange(s1, e1);
+      const days1 = daysBetween(parseISO(s1), parseISO(e1)) + 1;
+
+      const r1 = {
+        start: s1, end: e1, days: days1, rows: rows1,
+        summary: aggregateSummary(rows1),
+        top_styles: topStyles(rows1),
+        product_groups: productGroupsAgg(rows1),
+        size_scale: sizeScale(rows1),
+        youth_vs_men: youthVsMen(rows1),
+        all_skus: allSkus(rows1),
+        daily_trend: dailyTrend(rows1),
+      };
+
+      let r2 = null;
+      if (s2 && e2) {
+        const rows2 = await fetchRange(s2, e2);
+        const days2 = daysBetween(parseISO(s2), parseISO(e2)) + 1;
+        r2 = {
+          start: s2, end: e2, days: days2,
+          summary: aggregateSummary(rows2),
+          top_styles: topStyles(rows2),
+          product_groups: productGroupsAgg(rows2),
+        };
+      }
+
+      renderAnalytics(r1, r2);
+    } catch (err) {
+      document.getElementById('analytics-content').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error</div><div class="empty-sub">${err.message}</div></div>`;
+    }
+  }
+
+  // ============================================================================
+  // Render
+  // ============================================================================
+  function pctDelta(curr, prev) {
+    if (!prev) return null;
+    const v = (curr - prev) / prev;
+    const cls = v > 0.001 ? 'up' : v < -0.001 ? 'down' : 'flat';
+    const arrow = v > 0.001 ? '▲' : v < -0.001 ? '▼' : '—';
+    return { cls, arrow, text: Math.abs(v*100).toFixed(1)+'%' };
+  }
+  function ptDelta(curr, prev) {
+    const v = curr - prev;
+    const cls = v > 0.0001 ? 'up' : v < -0.0001 ? 'down' : 'flat';
+    const arrow = v > 0.0001 ? '▲' : v < -0.0001 ? '▼' : '—';
+    return { cls, arrow, text: (Math.abs(v)*100).toFixed(2)+'pp' };
+  }
+
+  function kpiCard(label, value, delta, sub, color) {
+    let deltaHtml = '';
+    if (delta) deltaHtml = `<div class="kpi-delta ${delta.cls}">${delta.arrow} ${delta.text} vs prev</div>`;
+    return `<div class="kpi ${color}"><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div>${deltaHtml}<div class="kpi-sub">${sub}</div></div>`;
+  }
+
+  function styleTable(styles, label, fullWidth) {
+    let html = `<div class="card"><div class="card-title">${label}</div><div class="scroll-wrap" style="max-height:${fullWidth ? 420 : 300}px">`;
+    html += '<table><thead><tr><th>Style</th><th class="r">Units</th><th class="r">Conv%</th><th class="r">Sessions</th>';
+    if (fullWidth) html += '<th class="r">Revenue</th>';
+    html += '</tr></thead><tbody>';
+    for (const s of styles) {
+      html += `<tr><td class="mono">${s.style}</td><td class="r">${fmtN(s.units)}</td><td class="r">${fmtP(s.conversion)}</td><td class="r">${fmtN(s.sessions)}</td>`;
+      if (fullWidth) html += `<td class="r">${fmt(s.revenue)}</td>`;
+      html += '</tr>';
+    }
+    html += '</tbody></table></div></div>';
+    return html;
+  }
+
+  function sizeTable(sizes, order) {
+    let html = '<table><thead><tr><th>Size</th><th class="r">Units</th><th class="r">%</th></tr></thead><tbody>';
+    for (const sz of order) {
+      const v = sizes[sz] || { units: 0, pct: 0 };
+      html += `<tr><td class="mono">${sz}</td><td class="r">${fmtN(v.units)}</td><td class="r">${fmtP(v.pct)}</td></tr>`;
+    }
+    html += '</tbody></table>';
+    return html;
+  }
+
+  function renderAnalytics(r1, r2) {
+    const s1 = r1.summary;
+    let html = '';
+
+    // KPI cards
+    html += '<div class="grid-4">';
+    html += kpiCard('Revenue', fmt(s1.revenue), r2 ? pctDelta(s1.revenue, r2.summary.revenue) : null, `${r1.days} day${r1.days===1?'':'s'} · avg ${fmt(s1.revenue/r1.days)}/day`, 'orange');
+    html += kpiCard('Units Ordered', fmtN(s1.units), r2 ? pctDelta(s1.units, r2.summary.units) : null, `avg ${(s1.units/r1.days).toFixed(1)}/day`, 'blue');
+    html += kpiCard('Sessions', fmtN(s1.sessions), r2 ? pctDelta(s1.sessions, r2.summary.sessions) : null, `avg ${(s1.sessions/r1.days).toFixed(0)}/day`, 'green');
+    html += kpiCard('Conversion', fmtP(s1.conversion), r2 ? ptDelta(s1.conversion, r2.summary.conversion) : null, `${fmtP(s1.fba_pct)} FBA · ${fmtP(s1.avg_buy_box)} buy box`, 'purple');
+    html += '</div>';
+
+    if (MP.isAll()) {
+      const byM = {};
+      for (const m of MP.list()) byM[m.code] = { units: 0, revenue: 0, sessions: 0, fba: 0 };
+      for (const r of r1.rows) { const o = byM[r.marketplace]; if (!o) continue; o.units += r.units; o.revenue += r.revenue; o.sessions += r.sessions; if (r.is_fba) o.fba += r.units; }
+      html += '<div class="card" style="margin-bottom:20px;"><div class="card-title">By marketplace (USD)</div><table><thead><tr><th>Marketplace</th><th class="r">Revenue</th><th class="r">Share</th><th class="r">Units</th><th class="r">FBA %</th><th class="r">Sessions</th><th class="r">Conv%</th></tr></thead><tbody>';
+      for (const m of MP.list()) { const o = byM[m.code];
+        html += `<tr><td>${m.flag} ${m.name}</td><td class="r">${fmt(o.revenue)}</td><td class="r">${fmtP(s1.revenue ? o.revenue / s1.revenue : null)}</td><td class="r">${fmtN(o.units)}</td><td class="r">${fmtP(o.units ? o.fba / o.units : null)}</td><td class="r">${fmtN(o.sessions)}</td><td class="r">${fmtP(o.sessions ? o.units / o.sessions : null)}</td></tr>`; }
+      html += '</tbody></table></div>';
+    }
+
+    // Trend + product groups
+    html += '<div class="grid-6-4">';
+    html += '<div class="card"><div class="section-hdr"><div class="card-title" style="margin:0;">Daily Trend</div><div style="display:flex;gap:6px;">';
+    html += '<button class="btn sm active" id="trend-revenue-btn" onclick="switchTrend(\'revenue\')">Revenue</button>';
+    html += '<button class="btn sm" id="trend-units-btn" onclick="switchTrend(\'units\')">Units</button>';
+    html += '<button class="btn sm" id="trend-sessions-btn" onclick="switchTrend(\'sessions\')">Sessions</button>';
+    html += '<button class="btn sm" id="trend-conversion-btn" onclick="switchTrend(\'conversion\')">Conv%</button>';
+    html += '</div></div><div class="chart-wrap"><div id="trend-chart"></div></div></div>';
+
+    // Product groups
+    html += '<div class="card"><div class="card-title">Product Groups</div>';
+    html += '<div class="scroll-wrap" style="max-height:280px;">';
+    html += '<table><thead><tr><th>Group</th><th class="r">Units</th><th class="r">Conv%</th></tr></thead><tbody>';
+    const maxUnits = r1.product_groups[0]?.units || 1;
+    for (const g of r1.product_groups.slice(0, 20)) {
+      const pct = Math.round(g.units/maxUnits*100);
+      html += `<tr><td>${g.category}</td><td class="r"><div class="bar-cell"><div class="mini-bar-bg"><div class="mini-bar" style="width:${pct}%"></div></div>${fmtN(g.units)}</div></td><td class="r">${fmtP(g.conversion)}</td></tr>`;
+    }
+    html += '</tbody></table></div></div>';
+    html += '</div>';
+
+    // Top Styles
+    html += '<div class="section-hdr"><div class="section-title">Top Styles</div>';
+    if (r2) html += `<div class="section-sub">${r1.start} → ${r1.end} vs ${r2.start} → ${r2.end}</div>`;
+    html += '</div>';
+    if (r2) {
+      html += '<div class="grid-2" style="margin-bottom:20px;">';
+      html += styleTable(r1.top_styles, 'Range 1', false);
+      html += styleTable(r2.top_styles, 'Compare', false);
+      html += '</div>';
+    } else {
+      html += '<div style="margin-bottom:20px;">' + styleTable(r1.top_styles, 'Top 20 Styles', true) + '</div>';
+    }
+
+    // Size scales
+    html += '<div class="grid-2" style="margin-bottom:20px;">';
+    html += '<div class="card"><div class="card-title">Mens Size Scale</div>' + sizeTable(r1.size_scale.mens, MENS_SIZES) + '</div>';
+    html += '<div class="card"><div class="card-title">Youth Size Scale</div>' + sizeTable(r1.size_scale.youth, YOUTH_SIZES) + '</div>';
+    html += '</div>';
+
+    // Youth vs Men + All SKUs
+    html += '<div class="grid-2" style="margin-bottom:20px;">';
+    const yvm = r1.youth_vs_men;
+    html += `<div class="card"><div class="card-title">Men vs Youth</div>
+      <table><thead><tr><th>Segment</th><th class="r">Styles</th><th class="r">Units</th><th class="r">Sessions</th><th class="r">Conv%</th></tr></thead><tbody>
+      <tr><td>Men</td><td class="r">${yvm.men.unique_styles}</td><td class="r">${fmtN(yvm.men.units)}</td><td class="r">${fmtN(yvm.men.sessions)}</td><td class="r">${fmtP(yvm.men.conversion)}</td></tr>
+      <tr><td>Youth</td><td class="r">${yvm.youth.unique_styles}</td><td class="r">${fmtN(yvm.youth.units)}</td><td class="r">${fmtN(yvm.youth.sessions)}</td><td class="r">${fmtP(yvm.youth.conversion)}</td></tr>
+      </tbody></table></div>`;
+
+    html += '<div class="card"><div class="card-title">Top 50 SKUs by Units</div><div class="scroll-wrap" style="max-height:240px;">';
+    html += '<table><thead><tr><th>SKU</th><th class="r">Units</th><th class="r">Revenue</th><th class="r">Conv%</th></tr></thead><tbody>';
+    for (const s of r1.all_skus) {
+      html += `<tr><td class="mono">${s.sku}</td><td class="r">${fmtN(s.units)}</td><td class="r">${fmt(s.revenue)}</td><td class="r">${fmtP(s.conversion)}</td></tr>`;
+    }
+    html += '</tbody></table></div></div>';
+    html += '</div>';
+
+    document.getElementById('analytics-content').innerHTML = html;
+
+    // Build trend chart
+    window._trendData = r1.daily_trend;
+    switchTrend('revenue');
+  }
+
+  function switchTrend(metric) {
+    const buttons = ['revenue','units','sessions','conversion'];
+    for (const b of buttons) {
+      const el = document.getElementById('trend-' + b + '-btn');
+      if (el) el.classList.toggle('active', b === metric);
+    }
+    drawTrendChart(window._trendData, metric);
+  }
+
+  function drawTrendChart(data, metric) {
+    const c = document.getElementById('trend-chart');
+    if (!c || !data || data.length === 0) {
+      if (c) c.innerHTML = '<div style="padding:40px;color:var(--text-dim);text-align:center;font-size:13px;">No data</div>';
+      return;
+    }
+    const W = 800, H = 200, PAD_L = 56, PAD_R = 14, PAD_T = 14, PAD_B = 28;
+    const innerW = W - PAD_L - PAD_R;
+    const innerH = H - PAD_T - PAD_B;
+
+    const vals = data.map(d => d[metric]);
+    const maxY = Math.max(...vals, 0.0001);
+    const minY = 0;
+
+    const xFor = i => data.length === 1 ? PAD_L + innerW/2 : PAD_L + (i / (data.length - 1)) * innerW;
+    const yFor = v => PAD_T + innerH - ((v - minY) / (maxY - minY)) * innerH;
+
+    let path = '';
+    let dots = '';
+    for (let i = 0; i < data.length; i++) {
+      const x = xFor(i), y = yFor(vals[i]);
+      path += (i === 0 ? 'M' : 'L') + ` ${x.toFixed(1)} ${y.toFixed(1)} `;
+      dots += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="var(--accent)" />`;
+    }
+
+    // Y-axis ticks
+    const tickCount = 4;
+    let yTicks = '';
+    for (let i = 0; i <= tickCount; i++) {
+      const v = (maxY / tickCount) * i;
+      const y = yFor(v);
+      yTicks += `<line x1="${PAD_L}" x2="${W-PAD_R}" y1="${y}" y2="${y}" stroke="var(--border)" stroke-width="1" />`;
+      const label = metric === 'revenue' ? MP.symbol(MP.displayCurrency()) + Math.round(v).toLocaleString()
+                  : metric === 'conversion' ? (v*100).toFixed(1) + '%'
+                  : Math.round(v).toLocaleString();
+      yTicks += `<text x="${PAD_L - 6}" y="${y + 3}" text-anchor="end" font-size="9" fill="var(--text-dim)">${label}</text>`;
+    }
+
+    // X-axis labels — first, last, and a few in between
+    let xLabels = '';
+    const labelIdxs = data.length <= 7
+      ? data.map((_,i)=>i)
+      : [0, Math.floor(data.length/2), data.length-1];
+    for (const i of labelIdxs) {
+      const x = xFor(i);
+      const d = parseISO(data[i].date);
+      const lbl = d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : data[i].date;
+      xLabels += `<text x="${x}" y="${H - PAD_B + 14}" text-anchor="middle" font-size="9" fill="var(--text-dim)">${lbl}</text>`;
+    }
+
+    c.innerHTML = `<svg class="trend" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      ${yTicks}
+      ${xLabels}
+      <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" />
+      ${dots}
+    </svg>`;
+  }
+
+  // ============================================================================
+  // Goal pace — per marketplace, seasonal
+  // Expected-to-date follows a seasonal curve: each calendar month's share of a
+  // year's sales, taken from the last 12 complete months of US history unless a
+  // marketplace has its own curve saved in settings. Goals are in USD; non-USD
+  // sales are converted at each day's rate (mp_daily_totals does this).
+  // ============================================================================
+  async function fetchTotals(codes, fromISO) {
+    const out = []; let off = 0;
+    while (true) {
+      const { data, error } = await sb.from('mp_daily_totals').select('marketplace, date, revenue_usd, rate_estimated')
+        .in('marketplace', codes).gte('date', fromISO).order('date').range(off, off + 999);
+      if (error) throw new Error(error.message);
+      out.push(...(data || []));
+      if (!data || data.length < 1000) break;
+      off += 1000;
+    }
+    return out;
+  }
+
+  function monthKey(iso) { return iso.slice(0, 7); }
+  function daysInMonth(y, m) { return new Date(Date.UTC(y, m + 1, 0)).getUTCDate(); }
+
+  // 12 shares (Jan..Dec) summing to 1, from the last 12 complete months of US sales.
+  function seasonalCurve(usRows) {
+    if (!usRows.length) return { shares: Array(12).fill(1 / 12), months: 0 };
+    const byMonth = {}; const daysSeen = {};
+    for (const r of usRows) { const k = monthKey(r.date); byMonth[k] = (byMonth[k] || 0) + Number(r.revenue_usd || 0); daysSeen[k] = (daysSeen[k] || 0) + 1; }
+    const complete = Object.keys(byMonth).filter(k => {
+      const [y, m] = k.split('-').map(Number); return daysSeen[k] >= daysInMonth(y, m - 1) - 1;  // allow one missing day
+    }).sort().slice(-12);
+    const tot = Array(12).fill(null);
+    for (const k of complete) tot[Number(k.slice(5, 7)) - 1] = byMonth[k];
+    const known = tot.filter(v => v != null);
+    const avg = known.length ? known.reduce((a, b) => a + b, 0) / known.length : 1;
+    const filled = tot.map(v => v == null ? avg : v);
+    const sum = filled.reduce((a, b) => a + b, 0) || 1;
+    return { shares: filled.map(v => v / sum), months: complete.length };
+  }
+
+  function curveFor(m, usCurve) {
+    const c = m.settings && m.settings.seasonal_curve;
+    if (Array.isArray(c) && c.length === 12) {
+      const sum = c.reduce((a, b) => a + Number(b || 0), 0) || 1;
+      return { shares: c.map(v => Number(v || 0) / sum), custom: true };
+    }
+    return { shares: usCurve.shares, custom: false };
+  }
+
+  function paceFor(m, rows, curve) {
+    const s = m.settings || {};
+    if (!s.annual_goal || !s.goal_start || !s.goal_end) return { state: 'nogoal' };
+    const goal = Number(s.annual_goal), start = s.goal_start, end = s.goal_end;
+    const mine = rows.filter(r => r.marketplace === m.code && r.date >= start && r.date <= end);
+    const today = toISO(new Date());
+    if (today < start) return { state: 'future', goal, start, end };
+    const cutoff = mine.length ? mine[mine.length - 1].date : null;
+    const w = iso => { const d = parseISO(iso); return curve.shares[d.getUTCMonth()] / daysInMonth(d.getUTCFullYear(), d.getUTCMonth()); };
+    let wAll = 0, wToDate = 0;
+    for (let d = parseISO(start); d <= parseISO(end); d = addDays(d, 1)) {
+      const iso = toISO(d), x = w(iso); wAll += x; if (cutoff && iso <= cutoff) wToDate += x;
+    }
+    const actual = mine.reduce((a, r) => a + Number(r.revenue_usd || 0), 0);
+    const frac = wAll ? wToDate / wAll : 0;
+    const expected = goal * frac;
+    return {
+      state: cutoff ? 'ok' : 'nodata', goal, start, end, cutoff, actual, expected, frac,
+      paceDiff: expected ? actual / expected - 1 : null,
+      projected: frac ? actual / frac : null,
+      estimated: mine.some(r => r.rate_estimated),
+    };
+  }
+
+  const money0usd = n => MP.money(Math.round(n), 0, 'USD');
+
+  async function loadPace() {
+    const box = document.getElementById('pace');
+    try {
+      const markets = MP.codes().map(c => MP.market(c));
+      const starts = markets.map(m => m.settings && m.settings.goal_start).filter(Boolean).sort();
+      const since = toISO(addDays(todayUTC(), -400));
+      const from = starts.length && starts[0] < since ? starts[0] : since;
+      const rows = await fetchTotals([...new Set(['US', ...MP.codes()])], from);
+      const usCurve = seasonalCurve(rows.filter(r => r.marketplace === 'US'));
+      box.innerHTML = '<div class="pace-grid">' + markets.map(m => {
+        const curve = curveFor(m, usCurve);
+        const p = paceFor(m, rows, curve);
+        const hd = `<div class="pace-hd"><span>${m.flag}</span><span class="nm">${m.name} goal</span>`;
+        if (p.state === 'nogoal') return `<div class="pace">${hd}</div><div class="pace-note">No goal set for this marketplace yet.</div></div>`;
+        if (p.state === 'future') return `<div class="pace">${hd}</div><div class="pace-note">${money0usd(p.goal)} goal for ${fmtLong(p.start)} – ${fmtLong(p.end)}. Pacing starts on ${fmtLong(p.start)}.</div></div>`;
+        if (p.state === 'nodata') return `<div class="pace">${hd}</div><div class="pace-note">${money0usd(p.goal)} goal. No sales uploaded in the goal period yet.</div></div>`;
+        const up = p.paceDiff >= 0;
+        const pctGoal = p.goal ? p.actual / p.goal : 0;
+        return `<div class="pace">${hd}<span class="st ${up ? 'up' : 'down'}">${up ? '▲' : '▼'} ${Math.abs(p.paceDiff * 100).toFixed(1)}% ${up ? 'ahead' : 'behind'}</span></div>
+          <div class="pace-bar"><div class="fill" style="width:${Math.min(100, pctGoal * 100)}%"></div><div class="mark" style="left:${Math.min(100, p.frac * 100)}%" title="Where seasonal pace says you should be"></div></div>
+          <div class="pace-nums">
+            <div>Sales to date<b>${money0usd(p.actual)}</b></div>
+            <div>Expected by now<b>${money0usd(p.expected)}</b></div>
+            <div>Year-end at this pace<b>${money0usd(p.projected)}</b></div>
+          </div>
+          <div class="pace-note">${fmtP(pctGoal)} of ${money0usd(p.goal)} through ${fmtLong(p.cutoff)}. The line marks seasonal pace (${(p.frac * 100).toFixed(1)}% of the year's expected sales)${curve.custom ? ', using this marketplace\'s own curve' : `, using the US curve from ${usCurve.months} complete months`}.${p.estimated ? ' Some days used the backup exchange rate.' : ''}</div></div>`;
+      }).join('') + '</div>';
+    } catch (e) {
+      box.innerHTML = `<div class="pace-grid"><div class="pace"><div class="pace-note">Couldn't load goal pace: ${e.message}. Run the Step 17 SQL in Supabase if you haven't yet.</div></div></div>`;
+    }
+  }
+  function fmtLong(iso) { return parseISO(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }); }
+</script>
+
+</body>
+</html>
