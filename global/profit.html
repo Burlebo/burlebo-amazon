@@ -514,7 +514,7 @@
       <tr class="sub">${MP.isAll() ? '<td></td>' : ''}<td>Product profit</td><td></td><td class="r ${cls(t.profit)}">${money(t.profit)}</td></tr>`;
     for (const o of overhead.sort((a, b) => b.amount - a.amount)) {
       const m = MP.market(o.market);
-      html += `<tr>${MP.isAll() ? `<td>${m.flag} ${esc(m.code)}</td>` : ''}<td>${esc(o.label)}</td><td style="white-space:normal;color:var(--text-dim);font-size:12px">${esc(o.detail || '')}</td><td class="r">−${money(o.amount)}</td></tr>`;
+      html += `<tr>${MP.isAll() ? `<td>${m.flag} ${esc(m.code)}</td>` : ''}<td>${esc(o.label)}</td><td style="white-space:normal;color:var(--text-dim);font-size:12px">${esc(o.detail || '')}</td><td class="r">${o.amount < 0 ? '+' + money(-o.amount) : '−' + money(o.amount)}</td></tr>`;
     }
     if (!overhead.length) html += `<tr>${MP.isAll() ? '<td></td>' : ''}<td colspan="3" style="color:var(--text-dim)">No overhead in this range.</td></tr>`;
     html += `<tr class="total">${MP.isAll() ? '<td></td>' : ''}<td>Net profit</td><td></td><td class="r ${cls(net)}">${money(net)}</td></tr></tbody></table></div>`;
