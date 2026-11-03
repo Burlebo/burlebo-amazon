@@ -226,6 +226,13 @@
     return { date, ts: `${date}T${String(h).padStart(2,'0')}:${m[5]}:${m[6]}${off}` };
   }
 
+  function parseTxFilename(name) {
+    const m = String(name || '').match(/(\d{4})([A-Za-z]{3})(\d{1,2})-(\d{4})([A-Za-z]{3})(\d{1,2})/);
+    if (!m) return null;
+    const a = MONTHS[m[2].toLowerCase()], b = MONTHS[m[5].toLowerCase()];
+    if (a == null || b == null) return null;
+    return { from: isoFromParts(+m[1], a, +m[3]), to: isoFromParts(+m[4], b, +m[6]) };
+  }
   function localISO(d) {
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   }
@@ -445,12 +452,16 @@
         types[r[cType] || '(blank)'] = (types[r[cType] || '(blank)'] || 0) + 1;
         const code = txMarket(r[cMk]); if (code) mks[code] = (mks[code] || 0) + 1;
       }
+      // Amazon names these files like "2026Sep1-2026Nov2CustomTransaction.csv".
+      // That range is what the report covers, even on days with no transactions.
+      const fr = parseTxFilename(CUR.file.name);
+      if (fr) { min = fr.from; max = fr.to; }
       const main = Object.entries(mks).sort((a, b) => b[1] - a[1])[0];
       const guess = main ? main[0] : (CUR.meta.currency && MP.list().find(m => m.currency === CUR.meta.currency) || {}).code || 'US';
       CUR.meta.from = min; CUR.meta.to = max;
       const typeRows = Object.entries(types).sort((a, b) => b[1] - a[1])
         .map(([t, n]) => `<tr><td>${esc(t)}</td><td class="r">${n.toLocaleString()}</td></tr>`).join('');
-      previewCard('Transaction report', `${esc(CUR.file.name)} · ${CUR.rows.length.toLocaleString()} rows, ${fmtDate(min)} – ${fmtDate(max)}${CUR.meta.currency ? `, amounts in ${CUR.meta.currency}` : ''}. Rows already loaded from an earlier report are recognised and not counted twice.`,
+      previewCard('Transaction report', `${esc(CUR.file.name)} · ${CUR.rows.length.toLocaleString()} rows covering ${fmtDate(min)} – ${fmtDate(max)}${fr ? '' : ' (from the first and last transaction; the file name didn\'t show the report\'s date range)'}${CUR.meta.currency ? `, amounts in ${CUR.meta.currency}` : ''}. Rows already loaded from an earlier report are recognised and not counted twice.`,
         `<div class="field"><label>Marketplace</label><select id="mp">${marketOptions(guess)}</select></div>`,
         `<table class="split"><thead><tr><th>Transaction type</th><th class="r">Rows</th></tr></thead><tbody>${typeRows}</tbody></table>`);
     },
@@ -765,10 +776,6 @@
       const fresh = rows.filter(r => !existing.has(r.row_hash));
       const changed = rows.filter(r => { const e = existing.get(r.row_hash); return e && (e.transaction_status !== r.transaction_status || (e.settlement_id || null) !== r.settlement_id); });
       const already = rows.length - fresh.length - changed.length;
-      if (!fresh.length && !changed.length) {
-        return `Everything in this report was already loaded (${rows.length.toLocaleString()} rows). Nothing changed.`;
-      }
-
       status('Saving…');
       const upId = await newUploadLog({ report_type: 'transactions', marketplace: fileMk, date_from: CUR.meta.from, date_to: CUR.meta.to });
       try {
@@ -797,6 +804,7 @@
         }
       }
       setProgress(100);
+      if (!fresh.length && !changed.length) return `✓ Every row was already loaded, so nothing was added. The report's dates (${fmtDate(CUR.meta.from)} – ${fmtDate(CUR.meta.to)}) are now recorded as covered.` + fxNote;
       return `✓ ${fresh.length.toLocaleString()} new transactions saved` +
         (changed.length ? `, ${changed.length.toLocaleString()} updated (released or settled since the last report)` : '') +
         (already ? `, ${already.toLocaleString()} already loaded` : '') + '.' +
