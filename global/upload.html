@@ -1,0 +1,1022 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Upload — Burlebo Analytics</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/auth.js"></script>
+<script src="/global/marketplace.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; color: var(--text); }
+  header { padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  header h1 { margin: 0; }
+  header nav { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  header nav a { text-decoration: none; font-size: 14px; }
+  .role-pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .role-pill.coy { background: var(--coy-bg); color: var(--coy); }
+  .role-pill.designer { background: var(--designer-bg); color: var(--designer); }
+  .role-pill.employee { background: var(--employee-bg); color: var(--employee); }
+
+  main { max-width: 1040px; margin: 0 auto; padding: 28px 32px 60px; }
+  main.hidden { display: none; }
+  .page-title { font-size: 28px; font-weight: 800; letter-spacing: -.02em; margin: 0 0 6px; }
+  .page-sub { font-size: 14px; color: var(--text-dim); margin: 0 0 24px; max-width: 72ch; }
+  h2 { font-size: 16px; font-weight: 700; margin: 32px 0 12px; }
+
+  .dropzone { border: 2px dashed var(--border); border-radius: var(--radius); background: var(--panel);
+              padding: 40px 24px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+  .dropzone:hover, .dropzone.drag { border-color: var(--tan); background: var(--panel-2); }
+  .dropzone .big { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+  .dropzone .small { font-size: 13px; color: var(--text-dim); }
+  .dropzone input { display: none; }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; margin-top: 16px; }
+  .card h3 { margin: 0 0 4px; font-size: 16px; font-weight: 700; }
+  .card .sub { font-size: 13px; color: var(--text-dim); margin-bottom: 14px; }
+  .fields { display: flex; flex-wrap: wrap; gap: 18px; margin-bottom: 14px; }
+  .field label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 5px; font-weight: 600; }
+  .field input, .field select { font: inherit; font-size: 14px; padding: 8px 10px; border-radius: var(--radius-sm);
+              border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  .field .value { font-size: 14px; font-weight: 600; padding: 8px 0; }
+  .split { width: 100%; border-collapse: collapse; font-size: 13px; margin: 4px 0 14px; }
+  .split th, .split td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--hairline); }
+  .split th { color: var(--text-dim); font-weight: 600; font-size: 12px; }
+  .split td.r, .split th.r { text-align: right; }
+
+  .btn { padding: 8px 16px; border-radius: var(--radius-sm); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+         border: 1px solid var(--border); background: var(--panel-2); color: var(--text); }
+  .btn:hover { background: var(--hover); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .btn.primary:hover { background: var(--accent-hover); }
+  .btn.ghost { background: transparent; }
+  .btn.danger { color: var(--red); }
+  .btn.sm { padding: 4px 10px; font-size: 12px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn-row { display: flex; gap: 8px; }
+
+  .msg { font-size: 13px; padding: 10px 12px; border-radius: var(--radius-sm); margin: 10px 0 0; line-height: 1.45; }
+  .msg.warn { background: var(--tan-soft); color: var(--text); border: 1px solid var(--tan-edge); }
+  .msg.err  { background: var(--red-bg); color: var(--red); }
+  .msg.ok   { background: var(--green-bg); color: var(--green); }
+  .msg.info { background: var(--panel-2); color: var(--text-dim); }
+  .progress { height: 4px; background: var(--panel-2); border-radius: 2px; overflow: hidden; margin-top: 12px; }
+  .progress .bar { height: 100%; width: 0; background: var(--tan); transition: width .2s; }
+
+  .missing { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  .missing .box { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+  .missing .box h4 { margin: 0 0 8px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .missing .ok { color: var(--green); font-size: 13px; font-weight: 600; }
+  .missing .none { color: var(--text-dim); font-size: 13px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: var(--red-bg); color: var(--red); }
+
+  .uploads { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .uploads th, .uploads td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--hairline); white-space: nowrap; }
+  .uploads th { color: var(--text-dim); font-weight: 600; font-size: 12px; background: var(--panel-2); }
+  .uploads td.file { color: var(--text-dim); font-size: 12px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+  .uploads tr:last-child td { border-bottom: 0; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); }
+  .tag.error { background: var(--red-bg); color: var(--red); border-color: transparent; }
+  .denied { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; text-align: center; }
+</style>
+</head>
+<body>
+
+<header id="app-header" style="display:none;">
+  <h1>Burlebo Analytics</h1>
+  <nav id="main-nav">
+    <span class="role-pill" id="role-pill"></span>
+  </nav>
+</header>
+
+<main id="app-main" class="hidden">
+  <div class="page-title">Upload</div>
+  <div class="page-sub">Drop any report here. The page works out what it is, which marketplace it belongs to and which day it covers, then shows you before anything is saved. US uploads also update the original dashboard pages, so both stay in sync.</div>
+
+  <div id="upload-panel">
+    <div class="dropzone" id="dropzone">
+      <div class="big">Drag a report here, or click to choose</div>
+      <div class="small">Business Report · Ad report · Transaction report · Inventory Supply at FBA · BURLEBO inventory · Shipment sent (XLSX)</div>
+      <input type="file" id="file-input" accept=".csv,.txt,.xlsx,.xls">
+    </div>
+    <div id="preview"></div>
+
+    <h2>Missing days</h2>
+    <div id="missing" class="missing"><div class="msg info">Checking…</div></div>
+
+    <h2>Recent uploads</h2>
+    <div id="recent"><div class="msg info">Loading…</div></div>
+  </div>
+
+  <div id="denied-panel" class="denied" style="display:none;">
+    <h3>Upload restricted</h3>
+    <p>Only Coy or the Assistant can upload files.</p>
+  </div>
+</main>
+
+<script>
+  // ============================================================================
+  // Setup
+  // ============================================================================
+  async function loadSharedNav() {
+    try {
+      const r = await fetch('/nav.html', { cache: 'no-cache' });
+      if (!r.ok) return;
+      const html = await r.text();
+      const nav = document.getElementById('main-nav');
+      const pill = document.getElementById('role-pill');
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      for (const a of tmp.querySelectorAll('a')) {
+        if (a.getAttribute('href') === window.location.pathname) a.classList.add('active');
+        nav.insertBefore(a, pill);
+      }
+    } catch (err) { console.error('Nav load failed:', err); }
+  }
+
+  const SUPABASE_URL = 'https://uoetojuyzyngfopsmmxk.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvZXRvanV5enluZ2ZvcHNtbXhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzODY3ODIsImV4cCI6MjA5NDk2Mjc4Mn0.FVhs_0waTWIYkTVY2j4HERhlovggIFau07RuBu69M8E';
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  const CAN_UPLOAD = ['coy', 'spencer'];
+
+  window.onAuthReady = async function (role) {
+    loadSharedNav();
+    if (!CAN_UPLOAD.includes(role)) {
+      document.getElementById('upload-panel').style.display = 'none';
+      document.getElementById('denied-panel').style.display = 'block';
+      return;
+    }
+    await MP.init(sb);
+    initDropzone();
+    refreshLists();
+  };
+
+  // ============================================================================
+  // Helpers
+  // ============================================================================
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+  // Header names vary between marketplaces ("Sessions - Total" in the US file,
+  // "Sessions – Total" with an en dash in Canada, "Units Ordered" vs
+  // "Units ordered"), so every lookup goes through this normaliser.
+  function norm(h) {
+    return String(h || '').replace(/^\uFEFF/, '').replace(/[\u2010-\u2015\u2212]/g, '-')
+      .replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+  function colFinder(sampleRow) {
+    const map = {};
+    for (const k of Object.keys(sampleRow || {})) map[norm(k)] = k;
+    return (...names) => { for (const n of names) { const k = map[norm(n)]; if (k !== undefined) return k; } return null; };
+  }
+
+  function parseNumber(v, allowNeg = true) {
+    if (v == null || v === '') return 0;
+    if (typeof v === 'number') return v;
+    let s = String(v).trim().replace(/[$£€]/g, '').replace(/CA|A\$|C\$/g, '').replace(/,/g, '').replace(/%/g, '');
+    if (allowNeg) s = s.replace(/\(/g, '-').replace(/\)/g, '');
+    const n = parseFloat(s);
+    return isNaN(n) ? 0 : n;
+  }
+
+  function cleanSku(sku) {
+    if (!sku) return { sku: '', isFba: false };
+    const s = String(sku).toUpperCase().trim();
+    if (s.startsWith('FBA2-')) return { sku: s.slice(5), isFba: true };
+    if (s.startsWith('FBA-'))  return { sku: s.slice(4), isFba: true };
+    return { sku: s, isFba: false };
+  }
+
+  const MONTHS = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
+  function isoFromParts(y, mo, d) { return `${y}-${String(mo + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+
+  // "Oct 12, 2026 - Oct 16, 2026" -> { from, to }
+  function parseDateRange(value) {
+    const parts = String(value || '').split(/\s+-\s+/);
+    const one = s => {
+      const m = String(s || '').trim().match(/^([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})$/);
+      if (m) { const mo = MONTHS[m[1].slice(0,3).toLowerCase()]; return mo == null ? null : isoFromParts(+m[3], mo, +m[2]); }
+      const iso = String(s || '').trim().match(/^\d{4}-\d{2}-\d{2}$/);
+      return iso ? iso[0] : null;
+    };
+    const from = one(parts[0]);
+    const to = parts[1] ? one(parts[1]) : from;
+    return from ? { from, to: to || from } : null;
+  }
+
+  // "Sep 3, 2026 11:33:40 p.m. PDT" -> { date: '2026-09-03', ts: ISO with offset }
+  const TZ = { PDT: '-07:00', PST: '-08:00', MDT: '-06:00', MST: '-07:00', CDT: '-05:00', CST: '-06:00',
+               EDT: '-04:00', EST: '-05:00', ADT: '-03:00', AST: '-04:00', UTC: '+00:00', GMT: '+00:00',
+               BST: '+01:00', AEDT: '+11:00', AEST: '+10:00' };
+  function parseAmazonDateTime(value) {
+    const s = String(value || '').trim();
+    const m = s.match(/^([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})(?:\s+(\d{1,2}):(\d{2}):(\d{2})\s*([ap])\.?m\.?)?\s*([A-Z]{2,4})?$/i);
+    if (!m) return null;
+    const mo = MONTHS[m[1].slice(0,3).toLowerCase()];
+    if (mo == null) return null;
+    const date = isoFromParts(+m[3], mo, +m[2]);
+    if (!m[4]) return { date, ts: null };
+    let h = +m[4] % 12;
+    if (m[7].toLowerCase() === 'p') h += 12;
+    const off = TZ[(m[8] || '').toUpperCase()] || '+00:00';
+    return { date, ts: `${date}T${String(h).padStart(2,'0')}:${m[5]}:${m[6]}${off}` };
+  }
+
+  function localISO(d) {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  function addDayISO(iso) { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); }
+  function daysAgoISO(n) { const d = new Date(); d.setDate(d.getDate() - n); return localISO(d); }
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    return new Date(String(iso).slice(0,10) + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  }
+  function fmtShort(iso) {
+    return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+  }
+  function timeAgo(ts) {
+    const sec = (Date.now() - new Date(ts).getTime()) / 1000;
+    if (sec < 60) return 'just now';
+    if (sec < 3600) return Math.floor(sec / 60) + 'm ago';
+    if (sec < 86400) return Math.floor(sec / 3600) + 'h ago';
+    return Math.floor(sec / 86400) + 'd ago';
+  }
+  function setProgress(pct) { const el = document.getElementById('bar'); if (el) el.style.width = Math.min(100, pct) + '%'; }
+  function status(html, cls = 'info') { const el = document.getElementById('status'); if (el) { el.className = 'msg ' + cls; el.innerHTML = html; } }
+
+  async function insertBatches(table, rows, onProgress, opts) {
+    let done = 0;
+    for (let i = 0; i < rows.length; i += 500) {
+      const batch = rows.slice(i, i + 500);
+      const res = opts && opts.onConflict
+        ? await sb.from(table).upsert(batch, { onConflict: opts.onConflict })
+        : await sb.from(table).insert(batch);
+      if (res.error) throw new Error(`${table}: ${res.error.message}`);
+      done += batch.length;
+      if (onProgress) onProgress(done / rows.length);
+    }
+    return done;
+  }
+
+  async function fetchAll(build) {
+    const out = []; let off = 0;
+    while (true) {
+      const { data, error } = await build().range(off, off + 999);
+      if (error) throw new Error(error.message);
+      out.push(...(data || []));
+      if (!data || data.length < 1000) break;
+      off += 1000;
+    }
+    return out;
+  }
+
+  function marketOptions(selected) {
+    return MP.list().map(m => `<option value="${m.code}" ${m.code === selected ? 'selected' : ''}>${m.flag} ${esc(m.name)}</option>`).join('');
+  }
+  function defaultMarket() { return MP.isAll() ? 'US' : MP.current(); }
+  function offsetDays(code) {
+    const m = MP.market(code);
+    return m && m.settings && m.settings.report_date_offset_days != null ? m.settings.report_date_offset_days : 2;
+  }
+
+  // ============================================================================
+  // File reading + type detection
+  // ============================================================================
+  function initDropzone() {
+    const dz = document.getElementById('dropzone');
+    const input = document.getElementById('file-input');
+    dz.addEventListener('click', () => input.click());
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+    dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+    input.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); input.value = ''; });
+  }
+
+  let CUR = null;  // { file, type, rows, meta }
+
+  function detectType(headers) {
+    const h = new Set(headers.map(norm));
+    if (h.has('(parent) asin') && h.has('sessions - total') && h.has('ordered product sales')) return 'business';
+    if (h.has('date range') && (h.has('advertised product sku') || h.has('advertised sku'))) return 'ads';
+    if (h.has('inventory supply at fba') && h.has('total reserved quantity')) return 'fba';
+    if (h.has('channel') && h.has('location') && h.has('on hand available')) return 'blb';
+    if (h.has('amazon sku') && h.has('shopify sku') && h.has('units needed for 90 day supply')) return 'shipment_sent';
+    return null;
+  }
+
+  async function handleFile(file) {
+    const box = document.getElementById('preview');
+    box.innerHTML = `<div class="card"><h3>Reading ${esc(file.name)}…</h3></div>`;
+    try {
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      let rows, type, meta = {};
+      if (ext === 'xlsx' || ext === 'xls') {
+        rows = await parseXlsx(file);
+        type = rows.length ? detectType(Object.keys(rows[0])) : null;
+      } else {
+        const text = (await file.text()).replace(/^\uFEFF/, '');
+        const tx = splitTransactionReport(text);
+        if (tx) {
+          type = 'transactions';
+          rows = Papa.parse(tx.body, { header: true, skipEmptyLines: true }).data;
+          meta.currency = tx.currency;
+        } else {
+          rows = Papa.parse(text, { header: true, skipEmptyLines: true }).data;
+          type = rows.length ? detectType(Object.keys(rows[0])) : null;
+        }
+      }
+      if (!type) {
+        box.innerHTML = `<div class="card"><h3>This file isn't a report the dashboard knows</h3>
+          <div class="msg err">${esc(file.name)}: the column headers don't match a Business Report, ad report, transaction report, Inventory Supply at FBA, BURLEBO inventory or shipment export.</div>
+          <div class="btn-row" style="margin-top:12px"><button class="btn ghost" onclick="clearPreview()">Dismiss</button></div></div>`;
+        return;
+      }
+      if (!rows.length) throw new Error('The file has no data rows.');
+      CUR = { file, type, rows, meta };
+      await PREVIEW[type]();
+    } catch (err) {
+      box.innerHTML = `<div class="card"><h3>Couldn't read the file</h3><div class="msg err">${esc(err.message)}</div></div>`;
+    }
+  }
+
+  // Transaction reports start with a block of notes before the real header.
+  function splitTransactionReport(text) {
+    const lines = text.split(/\r?\n/);
+    for (let i = 0; i < Math.min(lines.length, 30); i++) {
+      const l = lines[i].toLowerCase();
+      if (l.includes('date/time') && l.includes('settlement id') && l.includes('order id')) {
+        const pre = lines.slice(0, i).join(' ');
+        const cm = pre.match(/All amounts in ([A-Z]{3})/i);
+        return { body: lines.slice(i).join('\n'), currency: cm ? cm[1].toUpperCase() : null };
+      }
+    }
+    return null;
+  }
+
+  async function parseXlsx(file) {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, blankrows: false, defval: '' });
+    if (!aoa.length) return [];
+    let hi = 0;
+    for (let i = 0; i < Math.min(aoa.length, 10); i++) {
+      if ((aoa[i] || []).filter(c => String(c ?? '').trim() !== '').length >= 2) { hi = i; break; }
+    }
+    const headers = (aoa[hi] || []).map(h => String(h || '').trim());
+    const out = [];
+    for (let i = hi + 1; i < aoa.length; i++) {
+      const row = aoa[i] || []; const obj = {}; let any = false;
+      headers.forEach((h, c) => { if (!h) return; const v = row[c]; if (v !== '' && v != null) any = true; obj[h] = v == null ? '' : v; });
+      if (any) out.push(obj);
+    }
+    return out;
+  }
+
+  function clearPreview() { CUR = null; document.getElementById('preview').innerHTML = ''; }
+
+  function previewCard(title, sub, fieldsHtml, extraHtml = '', buttonLabel = 'Upload') {
+    document.getElementById('preview').innerHTML = `
+      <div class="card">
+        <h3>${title}</h3>
+        <div class="sub">${sub}</div>
+        ${fieldsHtml ? `<div class="fields">${fieldsHtml}</div>` : ''}
+        ${extraHtml}
+        <div class="btn-row">
+          <button class="btn ghost" onclick="clearPreview()">Cancel</button>
+          <button class="btn primary" id="go" onclick="runUpload()">${buttonLabel}</button>
+        </div>
+        <div id="status"></div>
+        <div class="progress"><div class="bar" id="bar"></div></div>
+      </div>`;
+  }
+
+  // ============================================================================
+  // Previews
+  // ============================================================================
+  const PREVIEW = {
+    async business() {
+      const mk = defaultMarket();
+      previewCard('Business Report', `${esc(CUR.file.name)} · ${CUR.rows.length.toLocaleString()} SKU rows. This report has no date in it, so check the date below.`,
+        `<div class="field"><label>Marketplace</label><select id="mp" onchange="businessDefaults()">${marketOptions(mk)}</select></div>
+         <div class="field"><label>Date this report covers</label><input type="date" id="date" max="${localISO(new Date())}"></div>`,
+        '<div id="check"></div>');
+      businessDefaults();
+    },
+
+    async ads() {
+      const f = colFinder(CUR.rows[0]);
+      const cMk = f('Advertised product marketplace'), cCcy = f('Budget currency'), cDate = f('Date range'), cCost = f('Total cost', 'Spend', 'Cost');
+      const ranges = new Set(); let multiDay = 0;
+      const byMk = {}; let unknown = 0;
+      for (const r of CUR.rows) {
+        const dr = parseDateRange(r[cDate]);
+        if (dr) { ranges.add(dr.from); ranges.add(dr.to); if (dr.from !== dr.to) multiDay++; }
+        const code = adMarket(r[cMk], r[cCcy]);
+        if (!code) { unknown++; continue; }
+        const m = (byMk[code] = byMk[code] || { rows: 0, spend: 0, ccy: r[cCcy] || MP.market(code).currency });
+        m.rows++; m.spend += parseNumber(r[cCost]);
+      }
+      const dates = [...ranges].sort();
+      CUR.meta.date = dates.length === 1 ? dates[0] : null;
+      CUR.meta.byMk = byMk;
+      let problem = '';
+      if (!dates.length) problem = 'No dates found in the "Date range" column.';
+      else if (dates.length > 1 || multiDay) problem = `This file covers ${fmtDate(dates[0])} – ${fmtDate(dates[dates.length - 1])}. Ad rows in a multi-day report are totals across those days and can't be split into single days, so pull the report for one day and upload that instead.`;
+      const split = `<table class="split"><thead><tr><th>Marketplace</th><th class="r">Rows</th><th class="r">Spend</th></tr></thead><tbody>
+        ${MP.list().map(m => { const x = byMk[m.code]; return `<tr><td>${m.flag} ${esc(m.name)}</td><td class="r">${x ? x.rows.toLocaleString() : 0}</td><td class="r">${x ? MP.money(x.spend, 2, x.ccy) : '—'}</td></tr>`; }).join('')}
+        </tbody></table>`;
+      previewCard('Ad report', `${esc(CUR.file.name)} · ${CUR.rows.length.toLocaleString()} rows, split by marketplace automatically.`,
+        `<div class="field"><label>Date (from the file)</label><div class="value">${CUR.meta.date ? fmtDate(CUR.meta.date) : '—'}</div></div>`,
+        split + (unknown ? `<div class="msg warn">${unknown.toLocaleString()} rows are for a marketplace that isn't turned on yet and will be skipped.</div>` : '') +
+        (problem ? `<div class="msg err">${problem}</div>` : ''));
+      if (problem) document.getElementById('go').disabled = true;
+    },
+
+    async transactions() {
+      const f = colFinder(CUR.rows[0]);
+      const cDate = f('date/time'), cType = f('type'), cMk = f('marketplace');
+      const types = {}; let min = null, max = null; const mks = {};
+      for (const r of CUR.rows) {
+        const d = parseAmazonDateTime(r[cDate]);
+        if (d) { if (!min || d.date < min) min = d.date; if (!max || d.date > max) max = d.date; }
+        types[r[cType] || '(blank)'] = (types[r[cType] || '(blank)'] || 0) + 1;
+        const code = txMarket(r[cMk]); if (code) mks[code] = (mks[code] || 0) + 1;
+      }
+      const main = Object.entries(mks).sort((a, b) => b[1] - a[1])[0];
+      const guess = main ? main[0] : (CUR.meta.currency && MP.list().find(m => m.currency === CUR.meta.currency) || {}).code || 'US';
+      CUR.meta.from = min; CUR.meta.to = max;
+      const typeRows = Object.entries(types).sort((a, b) => b[1] - a[1])
+        .map(([t, n]) => `<tr><td>${esc(t)}</td><td class="r">${n.toLocaleString()}</td></tr>`).join('');
+      previewCard('Transaction report', `${esc(CUR.file.name)} · ${CUR.rows.length.toLocaleString()} rows, ${fmtDate(min)} – ${fmtDate(max)}${CUR.meta.currency ? `, amounts in ${CUR.meta.currency}` : ''}. Rows already loaded from an earlier report are recognised and not counted twice.`,
+        `<div class="field"><label>Marketplace</label><select id="mp">${marketOptions(guess)}</select></div>`,
+        `<table class="split"><thead><tr><th>Transaction type</th><th class="r">Rows</th></tr></thead><tbody>${typeRows}</tbody></table>`);
+    },
+
+    async fba() {
+      previewCard('Inventory Supply at FBA', `${esc(CUR.file.name)} · ${CUR.rows.length.toLocaleString()} SKUs. Replaces the current snapshot for the marketplace you pick.`,
+        `<div class="field"><label>Marketplace</label><select id="mp">${marketOptions(defaultMarket())}</select></div>`);
+    },
+
+    async blb() {
+      previewCard('BURLEBO inventory', `${esc(CUR.file.name)} · ${CUR.rows.length.toLocaleString()} rows. HQ stock serves every marketplace, so there's no marketplace to pick. Replaces the current snapshot.`, '');
+    },
+
+    async shipment_sent() {
+      previewCard('Shipment sent to FBA', `${esc(CUR.file.name)} · ${CUR.rows.length.toLocaleString()} SKUs, counted as in flight for 48 hours.`, '');
+    },
+  };
+
+  function businessDefaults() {
+    const mk = document.getElementById('mp').value;
+    document.getElementById('date').value = daysAgoISO(offsetDays(mk));
+    businessSanityCheck(mk);
+  }
+
+  // Warn if the prices in the file look like the wrong currency for the
+  // chosen marketplace (CAD prices run roughly 30% above USD).
+  async function businessSanityCheck(mk) {
+    const out = document.getElementById('check');
+    if (!out) return;
+    out.innerHTML = '';
+    const f = colFinder(CUR.rows[0]);
+    const cSku = f('SKU'), cUnits = f('Units ordered'), cRev = f('Ordered product sales');
+    const filePrice = {};
+    for (const r of CUR.rows) {
+      const u = parseNumber(r[cUnits]); const rev = parseNumber(r[cRev]);
+      if (u > 0 && rev > 0) filePrice[cleanSku(r[cSku]).sku] = rev / u;
+    }
+    const skus = Object.keys(filePrice).slice(0, 60);
+    if (skus.length < 3) return;
+    try {
+      const { data } = await sb.from('mp_sales_daily').select('sku, units, revenue').eq('marketplace', 'US')
+        .in('sku', skus).gte('date', daysAgoISO(60)).limit(5000);
+      const us = {};
+      for (const r of (data || [])) { const x = (us[r.sku] = us[r.sku] || { u: 0, rev: 0 }); x.u += r.units || 0; x.rev += Number(r.revenue) || 0; }
+      const ratios = skus.filter(s => us[s] && us[s].u > 0).map(s => filePrice[s] / (us[s].rev / us[s].u)).sort((a, b) => a - b);
+      if (ratios.length < 3) return;
+      const med = ratios[Math.floor(ratios.length / 2)];
+      if (document.getElementById('mp').value !== mk) return;
+      if (mk === 'US' && med > 1.2) out.innerHTML = `<div class="msg warn">Prices in this file run about ${Math.round((med - 1) * 100)}% above recent US prices, which looks like a Canada report. Check the marketplace before uploading.</div>`;
+      if (mk !== 'US' && med > 0.9 && med < 1.1) out.innerHTML = `<div class="msg warn">Prices in this file match recent US prices, which looks like a US report. Check the marketplace before uploading.</div>`;
+    } catch (e) { /* the check is a convenience only */ }
+  }
+
+  function adMarket(label, ccy) {
+    const l = String(label || '').trim().toUpperCase();
+    if (l) { const m = MP.list().find(x => (x.ads_label || '').toUpperCase() === l); return m ? m.code : null; }
+    // Sponsored Brands / video rows leave the marketplace blank; fall back on currency.
+    const c = String(ccy || '').trim().toUpperCase();
+    const m = MP.list().find(x => x.currency === c);
+    return m ? m.code : null;
+  }
+  function txMarket(label) {
+    const l = String(label || '').trim().toLowerCase();
+    const m = MP.list().find(x => (x.amazon_domain || '').toLowerCase() === l);
+    return m ? m.code : null;
+  }
+  function adType(campaignName, hasSku) {
+    const m = String(campaignName || '').match(/(?:^| - )(SBV|SB|SD|SP)(?: - |$)/);
+    return m ? m[1] : (hasSku ? 'SP' : 'SB');
+  }
+
+  // ============================================================================
+  // Upload runners
+  // ============================================================================
+  async function runUpload() {
+    const btn = document.getElementById('go');
+    btn.disabled = true;
+    try {
+      const msg = await RUN[CUR.type]();
+      if (msg === null) { btn.disabled = false; return; }   // cancelled
+      status(msg, 'ok');
+      setProgress(100);
+      btn.textContent = 'Done';
+      refreshLists();
+    } catch (err) {
+      console.error(err);
+      status('Upload failed: ' + esc(err.message), 'err');
+      btn.disabled = false;
+    }
+  }
+
+  async function newUploadLog(row) {
+    const { data, error } = await sb.from('mp_uploads').insert({ status: 'pending', filename: CUR.file.name, uploaded_by: AuthApp.role, ...row }).select().single();
+    if (error) throw new Error('Could not record the upload: ' + error.message);
+    return data.id;
+  }
+  async function finishUploadLog(id, rowCount, ok = true, errMsg = null) {
+    await sb.from('mp_uploads').update({ status: ok ? 'ok' : 'error', row_count: rowCount, error_msg: errMsg }).eq('id', id);
+  }
+  async function legacyUploadLog(fileType, date, rowCount) {
+    const { data, error } = await sb.from('uploads').insert({ filename: CUR.file.name, file_type: fileType, detected_date: date, row_count: rowCount, status: 'pending' }).select().single();
+    if (error) throw new Error('Could not record the upload on the original dashboard: ' + error.message);
+    return data.id;
+  }
+
+  const RUN = {
+    // ---------------- Business Report ----------------
+    async business() {
+      const mk = document.getElementById('mp').value;
+      const date = document.getElementById('date').value;
+      if (!date) { status('Pick the date this report covers.', 'err'); return null; }
+      const m = MP.market(mk);
+
+      status('Checking for an existing report…');
+      const { count } = await sb.from('mp_sales_daily').select('id', { count: 'exact', head: true }).eq('marketplace', mk).eq('date', date);
+      if (count > 0 && !confirm(`${m.name} already has a Business Report for ${fmtDate(date)} (${count.toLocaleString()} rows). Replace it?`)) {
+        status('Cancelled. Nothing was changed.', 'warn'); return null;
+      }
+
+      const f = colFinder(CUR.rows[0]);
+      const c = {
+        sku: f('SKU'), parent: f('(Parent) ASIN'), child: f('(Child) ASIN'), title: f('Title'),
+        sessions: f('Sessions - Total'), views: f('Page Views - Total'), bb: f('Featured Offer (Buy Box) Percentage'),
+        units: f('Units Ordered'), rev: f('Ordered Product Sales'),
+      };
+      const rows = []; let skipped = 0;
+      for (const r of CUR.rows) {
+        const rawSku = String(r[c.sku] || '').trim();
+        if (!rawSku) { skipped++; continue; }
+        const { sku, isFba } = cleanSku(rawSku);
+        // The "Total" columns already include B2B, so only the totals are read.
+        rows.push({
+          date, sku, raw_sku: rawSku, is_fba: isFba,
+          parent_asin: r[c.parent] || '', child_asin: r[c.child] || '', title: r[c.title] || '',
+          sessions: Math.round(parseNumber(r[c.sessions])), page_views: Math.round(parseNumber(r[c.views])),
+          buy_box_pct: parseNumber(r[c.bb]) / 100, units: Math.round(parseNumber(r[c.units])), revenue: parseNumber(r[c.rev]),
+        });
+      }
+
+      status('Saving…');
+      // Replace: drop the old day for this marketplace (data + its log rows).
+      await sb.from('mp_sales_daily').delete().eq('marketplace', mk).eq('date', date);
+      await sb.from('mp_uploads').delete().eq('marketplace', mk).eq('report_date', date).in('report_type', ['business', 'legacy:sales']);
+
+      let legacyId = null;
+      if (mk === 'US') {
+        await sb.from('sales_daily').delete().eq('date', date);
+        legacyId = await legacyUploadLog('sales', date, rows.length);
+      }
+      const upId = await newUploadLog({ report_type: 'business', marketplace: mk, report_date: date, legacy_upload_id: legacyId });
+      try {
+        await insertBatches('mp_sales_daily', rows.map(r => ({ ...r, marketplace: mk, currency: m.currency, upload_id: upId })),
+          p => setProgress(p * (legacyId ? 50 : 100)));
+        if (legacyId) {
+          await insertBatches('sales_daily', rows.map(r => ({ ...r, upload_id: legacyId })), p => setProgress(50 + p * 50));
+          await sb.from('uploads').update({ status: 'done', row_count: rows.length }).eq('id', legacyId);
+        }
+        await finishUploadLog(upId, rows.length);
+      } catch (e) {
+        await sb.from('mp_sales_daily').delete().eq('upload_id', upId);
+        await finishUploadLog(upId, 0, false, e.message);
+        if (legacyId) { await sb.from('sales_daily').delete().eq('upload_id', legacyId); await sb.from('uploads').update({ status: 'error', error_msg: e.message }).eq('id', legacyId); }
+        throw e;
+      }
+      return `✓ Saved ${rows.length.toLocaleString()} rows for ${m.flag} ${esc(m.name)}, ${fmtDate(date)}.` +
+        (mk === 'US' ? ' The original dashboard pages were updated too.' : '') + (skipped ? ` Skipped ${skipped} rows with no SKU.` : '');
+    },
+
+    // ---------------- Ad report ----------------
+    async ads() {
+      const date = CUR.meta.date;
+      const f = colFinder(CUR.rows[0]);
+      const c = {
+        mk: f('Advertised product marketplace'), ccy: f('Budget currency'), sku: f('Advertised product SKU', 'Advertised SKU', 'SKU'),
+        asin: f('Advertised product ID'), campId: f('Campaign ID'), campName: f('Campaign name'), groupId: f('Ad group ID'),
+        imp: f('Impressions'), clicks: f('Clicks'), cost: f('Total cost', 'Spend', 'Cost'),
+        sales: f('Sales', 'Sales from clicks'), purch: f('Purchases', 'Purchases from clicks'), units: f('Units sold'),
+        adProduct: f('Ad product'),
+      };
+      const unq = v => String(v ?? '').replace(/^="?|"$/g, '').trim();   // ="1465..." -> 1465...
+
+      const agg = new Map();       // new tables, per marketplace
+      const legacy = new Map();    // original ad_daily, US only, same shape as before
+      let skipped = 0;
+      for (const r of CUR.rows) {
+        const mk = adMarket(r[c.mk], r[c.ccy]);
+        if (!mk) { skipped++; continue; }
+        const spend = parseNumber(r[c.cost]), sales = parseNumber(r[c.sales]);
+        const purch = Math.round(parseNumber(r[c.purch])), units = Math.round(parseNumber(r[c.units]));
+        const imp = Math.round(parseNumber(r[c.imp])), clicks = Math.round(parseNumber(r[c.clicks]));
+        let rawSku = String(r[c.sku] || '').trim(), sku;
+        if (!rawSku) {
+          // Sponsored Brands advertise a brand, not one product, so there's no SKU.
+          // Keep the spend under a placeholder so it still counts toward TACOS.
+          if (!spend && !sales) { skipped++; continue; }
+          const ap = c.adProduct ? String(r[c.adProduct] || '').trim() : '';
+          rawSku = ap ? ap.toUpperCase().replace(/\s+/g, '-') : 'UNATTRIBUTED-AD';
+          sku = rawSku;
+        } else sku = cleanSku(rawSku).sku;
+        const campId = unq(r[c.campId]), groupId = unq(r[c.groupId]);
+        const key = `${mk}|${rawSku}|${campId}|${groupId}`;
+        const e = agg.get(key);
+        if (e) { e.spend += spend; e.sales += sales; e.purchases += purch; e.units += units; e.impressions += imp; e.clicks += clicks; }
+        else agg.set(key, {
+          marketplace: mk, currency: String(r[c.ccy] || MP.market(mk).currency).trim().toUpperCase(), date,
+          ad_type: adType(r[c.campName], !!r[c.sku]), sku, raw_sku: rawSku, asin: r[c.asin] || null,
+          campaign_id: campId, campaign_name: r[c.campName] || '', ad_group_id: groupId,
+          impressions: imp, clicks, spend, sales, purchases: purch, units,
+        });
+        if (mk === 'US') {
+          const campRaw = r[c.campId] || '';
+          const lk = `${rawSku}|${campRaw}`;
+          const le = legacy.get(lk);
+          if (le) { le.spend += spend; le.sales += sales; le.purchases += purch; }
+          else legacy.set(lk, { date, sku, raw_sku: rawSku, campaign_id: campRaw, campaign_name: r[c.campName] || '', spend, sales, purchases: purch, roas: 0 });
+        }
+      }
+      for (const l of legacy.values()) l.roas = l.spend ? l.sales / l.spend : 0;
+
+      status('Checking for existing ad data…');
+      const { count } = await sb.from('mp_ad_daily').select('id', { count: 'exact', head: true }).eq('date', date);
+      if (count > 0 && !confirm(`Ad data for ${fmtDate(date)} is already loaded (${count.toLocaleString()} rows). Replace it for every marketplace?`)) {
+        status('Cancelled. Nothing was changed.', 'warn'); return null;
+      }
+
+      status('Saving…');
+      const codes = MP.list().map(m => m.code);
+      await sb.from('mp_ad_daily').delete().eq('date', date).in('marketplace', codes);
+      await sb.from('mp_uploads').delete().eq('report_date', date).in('marketplace', codes).in('report_type', ['ads', 'legacy:ad']);
+      await sb.from('ad_daily').delete().eq('date', date);
+      const legacyRows = [...legacy.values()];
+      const legacyId = await legacyUploadLog('ad', date, legacyRows.length);
+
+      const all = [...agg.values()];
+      const perMk = {};
+      for (const code of codes) {
+        perMk[code] = await newUploadLog({ report_type: 'ads', marketplace: code, report_date: date, legacy_upload_id: code === 'US' ? legacyId : null });
+      }
+      try {
+        await insertBatches('mp_ad_daily', all.map(r => ({ ...r, upload_id: perMk[r.marketplace] })), p => setProgress(p * 70));
+        await insertBatches('ad_daily', legacyRows.map(r => ({ ...r, upload_id: legacyId })), p => setProgress(70 + p * 30));
+        await sb.from('uploads').update({ status: 'done', row_count: legacyRows.length }).eq('id', legacyId);
+        for (const code of codes) await finishUploadLog(perMk[code], all.filter(r => r.marketplace === code).length);
+      } catch (e) {
+        for (const code of codes) { await sb.from('mp_ad_daily').delete().eq('upload_id', perMk[code]); await finishUploadLog(perMk[code], 0, false, e.message); }
+        await sb.from('ad_daily').delete().eq('upload_id', legacyId);
+        await sb.from('uploads').update({ status: 'error', error_msg: e.message }).eq('id', legacyId);
+        throw e;
+      }
+      const parts = codes.map(code => { const m = MP.market(code); const n = all.filter(r => r.marketplace === code).length; return `${m.flag} ${n.toLocaleString()}`; }).join(', ');
+      return `✓ Saved ad data for ${fmtDate(date)}: ${parts} rows. US ads were also saved to the original dashboard (Canada ads no longer mix into US totals).` +
+        (skipped ? ` Skipped ${skipped.toLocaleString()} rows with no spend or an inactive marketplace.` : '');
+    },
+
+    // ---------------- Transaction report ----------------
+    async transactions() {
+      const fileMk = document.getElementById('mp').value;
+      const f = colFinder(CUR.rows[0]);
+      const g = n => f(n);
+      const NUM = {
+        product_sales: 'product sales', product_sales_tax: 'product sales tax', shipping_credits: 'shipping credits',
+        shipping_credits_tax: 'shipping credits tax', gift_wrap_credits: 'gift wrap credits', gift_wrap_credits_tax: 'gift wrap credits tax',
+        regulatory_fee: 'Regulatory fee', regulatory_fee_tax: 'Tax on regulatory fee', promotional_rebates: 'promotional rebates',
+        promotional_rebates_tax: 'promotional rebates tax', marketplace_withheld_tax: 'marketplace withheld tax',
+        selling_fees: 'selling fees', fba_fees: 'fba fees', other_transaction_fees: 'other transaction fees', other: 'other', total: 'total',
+      };
+      const C = { dt: g('date/time'), settle: g('settlement id'), type: g('type'), order: g('order id'), sku: g('sku'),
+                  desc: g('description'), qty: g('quantity'), mk: g('marketplace'), ful: g('fulfillment'),
+                  model: g('tax collection model'), st: g('Transaction status'), rel: g('Transaction Release Date') };
+
+      status('Reading rows…');
+      const seen = {};
+      const rows = [];
+      let bad = 0;
+      for (const r of CUR.rows) {
+        const d = parseAmazonDateTime(r[C.dt]);
+        if (!d) { bad++; continue; }
+        const mk = txMarket(r[C.mk]) || fileMk;
+        const m = MP.market(mk);
+        const rawSku = String(r[C.sku] || '').trim();
+        const ful = String(r[C.ful] || '').trim();
+        const row = {
+          marketplace: mk, currency: CUR.meta.currency || m.currency,
+          posted_at: d.ts, posted_date: d.date, settlement_id: r[C.settle] || null, type: r[C.type] || null,
+          order_id: r[C.order] || null, sku: rawSku ? cleanSku(rawSku).sku : null, raw_sku: rawSku || null,
+          description: r[C.desc] || null, quantity: r[C.qty] === '' || r[C.qty] == null ? null : Math.round(parseNumber(r[C.qty])),
+          fulfillment: ful || null, is_fba: ful === 'Amazon' ? true : ful === 'Seller' ? false : null,
+          tax_collection_model: r[C.model] || null, transaction_status: r[C.st] || null,
+          release_date: C.rel && r[C.rel] ? (parseAmazonDateTime(r[C.rel]) || {}).ts || null : null,
+        };
+        for (const [k, name] of Object.entries(NUM)) row[k] = parseNumber(r[g(name)]);
+        // Fingerprint everything that identifies the transaction, but not its
+        // settlement/status fields, which change when a deferred row is released.
+        const ident = [mk, r[C.dt], row.type, row.order_id, rawSku, row.description, row.quantity, ful,
+          ...Object.keys(NUM).map(k => row[k])].join('|');
+        seen[ident] = (seen[ident] || 0) + 1;
+        row.row_hash = await sha256(ident + '#' + seen[ident]);
+        rows.push(row);
+      }
+
+      status('Checking which rows are already loaded…');
+      const existing = new Map();
+      const hashes = rows.map(r => r.row_hash);
+      for (let i = 0; i < hashes.length; i += 100) {
+        const { data, error } = await sb.from('mp_transactions').select('row_hash, upload_id, transaction_status, settlement_id')
+          .in('row_hash', hashes.slice(i, i + 100));
+        if (error) throw new Error(error.message);
+        for (const e of (data || [])) existing.set(e.row_hash, e);
+        setProgress(i / hashes.length * 30);
+      }
+
+      const fresh = rows.filter(r => !existing.has(r.row_hash));
+      const changed = rows.filter(r => { const e = existing.get(r.row_hash); return e && (e.transaction_status !== r.transaction_status || (e.settlement_id || null) !== r.settlement_id); });
+      const already = rows.length - fresh.length - changed.length;
+      if (!fresh.length && !changed.length) {
+        return `Everything in this report was already loaded (${rows.length.toLocaleString()} rows). Nothing changed.`;
+      }
+
+      status('Saving…');
+      const upId = await newUploadLog({ report_type: 'transactions', marketplace: fileMk, date_from: CUR.meta.from, date_to: CUR.meta.to });
+      try {
+        const payload = [
+          ...fresh.map(r => ({ ...r, upload_id: upId })),
+          ...changed.map(r => ({ ...r, upload_id: existing.get(r.row_hash).upload_id })),
+        ];
+        await insertBatches('mp_transactions', payload, p => setProgress(30 + p * 55), { onConflict: 'marketplace,row_hash' });
+        await finishUploadLog(upId, fresh.length);
+      } catch (e) {
+        await sb.from('mp_transactions').delete().eq('upload_id', upId);
+        await finishUploadLog(upId, 0, false, e.message);
+        throw e;
+      }
+
+      // Daily exchange rates for the period, so profit converts at each day's rate.
+      let fxNote = '';
+      const ccys = [...new Set(rows.map(r => r.currency))].filter(c => c !== 'USD');
+      if (ccys.length) {
+        status('Loading exchange rates from the Bank of Canada…');
+        try {
+          const n = await loadBankOfCanadaRates(ccys, CUR.meta.from, CUR.meta.to);
+          fxNote = ` Loaded ${n} daily ${ccys.join('/')} exchange rates.`;
+        } catch (e) {
+          fxNote = ` <br>Exchange rates couldn't be loaded (${esc(e.message)}), so the backup rate in settings will be used for this period until they are.`;
+        }
+      }
+      setProgress(100);
+      return `✓ ${fresh.length.toLocaleString()} new transactions saved` +
+        (changed.length ? `, ${changed.length.toLocaleString()} updated (released or settled since the last report)` : '') +
+        (already ? `, ${already.toLocaleString()} already loaded` : '') + '.' +
+        (bad ? ` Skipped ${bad} rows with no readable date.` : '') + fxNote;
+    },
+
+    // ---------------- Inventory Supply at FBA ----------------
+    async fba() {
+      const mk = document.getElementById('mp').value;
+      const m = MP.market(mk);
+      const { count } = await sb.from('mp_fba_inventory_snapshot').select('id', { count: 'exact', head: true }).eq('marketplace', mk);
+      if (count > 0 && !confirm(`Replace the current ${m.name} FBA snapshot (${count.toLocaleString()} rows)?`)) { status('Cancelled. Nothing was changed.', 'warn'); return null; }
+      const today = localISO(new Date());
+      const f = colFinder(CUR.rows[0]);
+      const get = (r, ...n) => { const k = f(...n); return k ? r[k] : ''; };
+      const rows = []; let skipped = 0;
+      for (const r of CUR.rows) {
+        const rawSku = String(get(r, 'sku') || '').trim();
+        if (!rawSku) { skipped++; continue; }
+        rows.push({
+          snapshot_date: today, sku: cleanSku(rawSku).sku, raw_sku: rawSku,
+          asin: get(r, 'asin'), product_name: get(r, 'product-name', 'Product Name'),
+          available: Math.round(parseNumber(get(r, 'available'))),
+          on_hand: Math.round(parseNumber(get(r, 'Inventory Supply at FBA'))),
+          reserved: Math.round(parseNumber(get(r, 'Total Reserved Quantity'))),
+          unfulfillable: Math.round(parseNumber(get(r, 'unfulfillable-quantity'))),
+          inbound_total: Math.round(parseNumber(get(r, 'inbound-quantity'))),
+          inbound_working: Math.round(parseNumber(get(r, 'inbound-working'))),
+          inbound_shipped: Math.round(parseNumber(get(r, 'inbound-shipped'))),
+          inbound_received: Math.round(parseNumber(get(r, 'inbound-received'))),
+          days_of_supply: parseNumber(get(r, 'days-of-supply')),
+        });
+      }
+      status('Saving…');
+      await sb.from('mp_fba_inventory_snapshot').delete().eq('marketplace', mk);
+      let legacyId = null;
+      if (mk === 'US') { await sb.from('fba_planning_snapshot').delete().gte('id', 0); legacyId = await legacyUploadLog('fba', null, rows.length); }
+      const upId = await newUploadLog({ report_type: 'fba_inventory', marketplace: mk, report_date: today, legacy_upload_id: legacyId });
+      await insertBatches('mp_fba_inventory_snapshot', rows.map(r => ({ ...r, marketplace: mk, upload_id: upId })), p => setProgress(p * (legacyId ? 50 : 100)));
+      if (legacyId) {
+        await insertBatches('fba_planning_snapshot', rows.map(r => ({ ...r, upload_id: legacyId })), p => setProgress(50 + p * 50));
+        await sb.from('uploads').update({ status: 'done', row_count: rows.length }).eq('id', legacyId);
+      }
+      await finishUploadLog(upId, rows.length);
+      return `✓ Saved ${rows.length.toLocaleString()} SKUs for ${m.flag} ${esc(m.name)}.` + (mk === 'US' ? ' The original dashboard pages were updated too.' : '') + (skipped ? ` Skipped ${skipped} rows with no SKU.` : '');
+    },
+
+    // ---------------- BURLEBO inventory (marketplace-neutral, original table) ----------------
+    async blb() {
+      const { count } = await sb.from('blb_inventory_snapshot').select('id', { count: 'exact', head: true });
+      if (count > 0 && !confirm(`Replace the current BURLEBO inventory snapshot (${count.toLocaleString()} rows)?`)) { status('Cancelled. Nothing was changed.', 'warn'); return null; }
+      const today = localISO(new Date());
+      const f = colFinder(CUR.rows[0]);
+      const c = { sku: f('sku'), ch: f('channel'), loc: f('location'), parent: f('parent item', 'parent_item'), item: f('item name', 'item_name', 'name'),
+                  onHand: f('on hand', 'on_hand'), avail: f('on hand available', 'available'), res: f('reserved'), com: f('committed'), inb: f('inbound', 'on order') };
+      const map = new Map(); let skipped = 0;
+      for (const r of CUR.rows) {
+        const sku = String(r[c.sku] || '').trim().toUpperCase(), ch = String(r[c.ch] || '').trim(), loc = String(r[c.loc] || '').trim();
+        if (!sku || !ch || !loc) { skipped++; continue; }
+        const row = { snapshot_date: today, sku, parent_item: c.parent ? r[c.parent] || '' : '', item_name: c.item ? r[c.item] || '' : '', channel: ch, location: loc,
+          on_hand_total: c.onHand ? Math.round(parseNumber(r[c.onHand])) : 0, on_hand_avail: c.avail ? Math.round(parseNumber(r[c.avail])) : 0,
+          reserved: c.res ? Math.round(parseNumber(r[c.res])) : 0, committed: c.com ? Math.round(parseNumber(r[c.com])) : 0, inbound_total: c.inb ? Math.round(parseNumber(r[c.inb])) : 0 };
+        const k = `${sku}|${ch}|${loc}`; const e = map.get(k);
+        if (e) { ['on_hand_total','on_hand_avail','reserved','committed','inbound_total'].forEach(x => e[x] += row[x]); } else map.set(k, row);
+      }
+      const rows = [...map.values()];
+      status('Saving…');
+      await sb.from('blb_inventory_snapshot').delete().gte('id', 0);
+      const legacyId = await legacyUploadLog('blb', null, rows.length);
+      const upId = await newUploadLog({ report_type: 'blb', marketplace: null, report_date: today, legacy_upload_id: legacyId });
+      await insertBatches('blb_inventory_snapshot', rows.map(r => ({ ...r, upload_id: legacyId })), p => setProgress(p * 100));
+      await sb.from('uploads').update({ status: 'done', row_count: rows.length }).eq('id', legacyId);
+      await finishUploadLog(upId, rows.length);
+      return `✓ Saved ${rows.length.toLocaleString()} BURLEBO inventory rows.` + (skipped ? ` Skipped ${skipped} incomplete rows.` : '');
+    },
+
+    // ---------------- Shipment sent (original table) ----------------
+    async shipment_sent() {
+      const shipmentId = `${CUR.file.name.replace(/\.[^.]+$/, '')}_${Date.now()}`;
+      const rows = []; let skipped = 0;
+      for (const r of CUR.rows) {
+        const clean = String(r['Shopify SKU'] || '').trim().toUpperCase();
+        const units = Math.round(parseNumber(r['Units Needed for 90 Day Supply']));
+        if (!clean || units <= 0) { skipped++; continue; }
+        rows.push({ shipment_id: shipmentId, sku: clean, raw_sku: String(r['Amazon SKU'] || '').trim(), units, filename: CUR.file.name });
+      }
+      const legacyId = await legacyUploadLog('shipment_sent', null, rows.length);
+      const upId = await newUploadLog({ report_type: 'shipment_sent', marketplace: 'US', report_date: localISO(new Date()), legacy_upload_id: legacyId });
+      await insertBatches('shipments_sent', rows, p => setProgress(p * 100));
+      await sb.from('uploads').update({ status: 'done', row_count: rows.length }).eq('id', legacyId);
+      await finishUploadLog(upId, rows.length);
+      return `✓ Marked ${rows.length.toLocaleString()} SKUs as in flight for 48 hours.` + (skipped ? ` Skipped ${skipped} rows.` : '');
+    },
+  };
+
+  async function sha256(s) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 40);
+  }
+
+  // Bank of Canada publishes CAD per 1 unit of each currency (FXUSDCAD = CAD per USD).
+  // Stored as USD per 1 unit: CAD -> 1 / FXUSDCAD; GBP -> FXGBPCAD / FXUSDCAD.
+  async function loadBankOfCanadaRates(ccys, from, to) {
+    const start = new Date(from + 'T00:00:00Z'); start.setUTCDate(start.getUTCDate() - 7);
+    const series = ['FXUSDCAD', ...ccys.filter(c => c !== 'CAD').map(c => `FX${c}CAD`)];
+    const url = `https://www.bankofcanada.ca/valet/observations/${series.join(',')}/json?start_date=${start.toISOString().slice(0,10)}&end_date=${to}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('Bank of Canada returned ' + r.status);
+    const j = await r.json();
+    const rows = [];
+    for (const o of (j.observations || [])) {
+      const usdcad = o.FXUSDCAD && parseFloat(o.FXUSDCAD.v);
+      if (!usdcad) continue;
+      for (const c of ccys) {
+        const rate = c === 'CAD' ? 1 / usdcad : (o[`FX${c}CAD`] ? parseFloat(o[`FX${c}CAD`].v) / usdcad : null);
+        if (rate) rows.push({ date: o.d, currency: c, usd_per_unit: +rate.toFixed(6), source: 'bank_of_canada' });
+      }
+    }
+    if (!rows.length) throw new Error('no rates returned for that period');
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error } = await sb.from('mp_fx_rates').upsert(rows.slice(i, i + 500), { onConflict: 'date,currency' });
+      if (error) throw new Error(error.message);
+    }
+    return rows.length;
+  }
+
+  // ============================================================================
+  // Missing days + recent uploads
+  // ============================================================================
+  function refreshLists() { loadMissing(); loadRecent(); }
+
+  async function loadMissing() {
+    const box = document.getElementById('missing');
+    try {
+      const since = daysAgoISO(45);
+      const logs = await fetchAll(() => sb.from('mp_uploads').select('marketplace, report_type, report_date')
+        .in('report_type', ['business', 'legacy:sales', 'ads', 'legacy:ad']).in('status', ['ok', 'done'])
+        .gte('report_date', since).order('id'));
+      const firstAny = {};
+      for (const kind of ['business', 'ads']) {
+        for (const m of MP.list()) {
+          const types = kind === 'business' ? ['business', 'legacy:sales'] : ['ads', 'legacy:ad'];
+          const { data } = await sb.from('mp_uploads').select('report_date').eq('marketplace', m.code).in('report_type', types)
+            .in('status', ['ok', 'done']).not('report_date', 'is', null).order('report_date', { ascending: true }).limit(1);
+          firstAny[`${m.code}|${kind}`] = data && data[0] ? data[0].report_date : null;
+        }
+      }
+      const have = new Set(logs.map(l => `${l.marketplace}|${l.report_type.includes('ad') ? 'ads' : 'business'}|${l.report_date}`));
+      const html = [];
+      for (const m of MP.list()) {
+        const last = daysAgoISO(offsetDays(m.code));
+        for (const kind of ['business', 'ads']) {
+          const first = firstAny[`${m.code}|${kind}`];
+          const label = kind === 'business' ? 'Business Report' : 'Ads';
+          let body;
+          if (!first) body = '<div class="none">Nothing uploaded yet.</div>';
+          else {
+            const start = first > since ? first : since;
+            const missing = [];
+            for (let iso = start; iso <= last; iso = addDayISO(iso)) {
+              if (!have.has(`${m.code}|${kind}|${iso}`)) missing.push(iso);
+            }
+            body = missing.length
+              ? `<div class="chips">${missing.map(d => `<span class="chip">${fmtShort(d)}</span>`).join('')}</div>`
+              : `<div class="ok">All caught up through ${fmtShort(last)}</div>`;
+          }
+          html.push(`<div class="box"><h4>${m.flag} ${esc(m.name)}: ${label}</h4>${body}</div>`);
+        }
+      }
+      box.innerHTML = html.join('');
+    } catch (e) {
+      box.innerHTML = `<div class="msg err">Couldn't check for missing days: ${esc(e.message)}</div>`;
+    }
+  }
+
+  const TYPE_LABEL = { business: 'Business Report', ads: 'Ads', transactions: 'Transactions', fba_inventory: 'FBA inventory', blb: 'BURLEBO inventory', shipment_sent: 'Shipment sent' };
+  const DELETABLE = { business: 'mp_sales_daily', ads: 'mp_ad_daily', transactions: 'mp_transactions' };
+  const LEGACY_TABLE = { business: 'sales_daily', ads: 'ad_daily' };
+
+  async function loadRecent() {
+    const box = document.getElementById('recent');
+    const { data, error } = await sb.from('mp_uploads').select('*').not('report_type', 'like', 'legacy:%')
+      .order('uploaded_at', { ascending: false }).limit(30);
+    if (error) { box.innerHTML = `<div class="msg err">${esc(error.message)}</div>`; return; }
+    if (!data.length) { box.innerHTML = '<div class="msg info">No uploads from this page yet. Uploads made on the original Upload page show up there.</div>'; return; }
+    box.innerHTML = `<table class="uploads"><thead><tr><th>Report</th><th>Marketplace</th><th>Covers</th><th>File</th><th>Rows</th><th>Uploaded</th><th></th></tr></thead><tbody>
+      ${data.map(u => {
+        const m = u.marketplace ? MP.market(u.marketplace) : null;
+        const covers = u.date_from ? `${fmtDate(u.date_from)} – ${fmtDate(u.date_to)}` : u.report_date ? fmtDate(u.report_date) : '—';
+        const del = DELETABLE[u.report_type] || u.status !== 'ok' ? `<button class="btn sm ghost danger" onclick="deleteUpload(${u.id})">${DELETABLE[u.report_type] ? 'Delete' : 'Remove'}</button>` : '';
+        return `<tr><td>${TYPE_LABEL[u.report_type] || esc(u.report_type)}${u.status === 'error' ? ' <span class="tag error">failed</span>' : u.status === 'pending' ? ' <span class="tag">unfinished</span>' : ''}</td>
+          <td>${m ? `${m.flag} ${esc(m.code)}` : 'All'}</td><td>${covers}</td><td class="file" title="${esc(u.filename)}">${esc(u.filename)}</td>
+          <td>${(u.row_count || 0).toLocaleString()}</td><td>${timeAgo(u.uploaded_at)}</td><td>${del}</td></tr>`;
+      }).join('')}</tbody></table><div id="delete-status"></div>`;
+  }
+
+  async function deleteUpload(id) {
+    const out = document.getElementById('delete-status');
+    const { data: u } = await sb.from('mp_uploads').select('*').eq('id', id).single();
+    if (!u) return;
+    const table = DELETABLE[u.report_type];
+    const m = u.marketplace ? MP.market(u.marketplace) : null;
+    const where = `${m ? m.name + ' ' : ''}${TYPE_LABEL[u.report_type] || u.report_type}${u.report_date ? ' for ' + fmtDate(u.report_date) : ''}`;
+    let n = 0;
+    if (table) { const { count } = await sb.from(table).select('id', { count: 'exact', head: true }).eq('upload_id', id); n = count || 0; }
+    const msg = table
+      ? `Delete ${n.toLocaleString()} rows: ${where}?` + (u.legacy_upload_id && LEGACY_TABLE[u.report_type] ? '\n\nThe same data is removed from the original dashboard too.' : '') + '\n\nThis cannot be undone.'
+      : `Remove "${u.filename}" from the list?`;
+    if (!confirm(msg)) return;
+    // Rows are linked to the log entry, so deleting it removes them (cascade).
+    const { error } = await sb.from('mp_uploads').delete().eq('id', id);
+    if (error) { out.className = 'msg err'; out.textContent = 'Delete failed: ' + error.message; return; }
+    if (u.legacy_upload_id && LEGACY_TABLE[u.report_type]) {
+      await sb.from(LEGACY_TABLE[u.report_type]).delete().eq('upload_id', u.legacy_upload_id);
+      await sb.from('uploads').delete().eq('id', u.legacy_upload_id);
+    }
+    await refreshLists();
+    const o2 = document.getElementById('delete-status');
+    if (o2) { o2.className = 'msg ok'; o2.textContent = table ? `✓ Deleted ${n.toLocaleString()} rows: ${where}.` : '✓ Removed.'; }
+  }
+</script>
+</body>
+</html>
