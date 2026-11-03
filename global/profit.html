@@ -50,13 +50,13 @@
   .table-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--hairline); white-space: nowrap; }
-  th { color: var(--text-dim); font-weight: 600; font-size: 12px; background: var(--panel-2); position: sticky; top: 0; }
+  th { color: var(--text-dim); font-weight: 600; font-size: 12px; background: var(--panel-2); }
   td.r, th.r { text-align: right; }
   td.mono { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; }
   tr:last-child td { border-bottom: 0; }
   tr.total td { font-weight: 800; background: var(--panel-2); }
   tr.sub td { color: var(--text-dim); }
-  .scroll { max-height: 520px; overflow: auto; }
+  .scroll { }
   .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-2); }
   .tag.actual { background: var(--green-bg); color: var(--green); border-color: transparent; }
   .tag.est { background: var(--tan-soft); color: var(--text); border-color: var(--tan-edge); }
@@ -239,6 +239,28 @@
     return l;
   }
 
+  // Refunds and promotions as a share of product sales, from the latest 90 days
+  // of actual transactions. Used only for days without a transaction report.
+  const LEAK_CACHE = {};
+  async function leakageRate(code, spans, ccy) {
+    if (!spans.length) return { rate: AMAZON_LEAKAGE_RATE, measured: false };
+    const [first, last] = [spans[spans.length - 1][0], spans[spans.length - 1][1]];
+    const from = addDays(last, -89) > first ? addDays(last, -89) : first;
+    const key = `${code}|${from}|${last}`;
+    if (LEAK_CACHE[key]) return LEAK_CACHE[key];
+    let os = 0, units = 0, lost = 0;
+    for (const r of await rpcAll('mp_profit_tx', { p_mk: code, p_from: from, p_to: last, p_ccy: ccy })) {
+      if (!r.sku) continue;
+      if (r.type === 'Order') { os += N(r.product_sales); units += N(r.qty); lost += N(r.promotional_rebates); }
+      else if (r.type === 'Refund' || /a-to-z/i.test(r.type)) lost += N(r.product_sales) + N(r.promotional_rebates);
+    }
+    const out = units >= 100 && os > 0
+      ? { rate: Math.min(0.3, Math.max(0, -lost / os)), measured: true, window: [from, last] }
+      : { rate: AMAZON_LEAKAGE_RATE, measured: false };
+    LEAK_CACHE[key] = out;
+    return out;
+  }
+
   async function computeMarket(code, s, e) {
     const m = MP.market(code);
     const settings = m.settings || {};
@@ -250,7 +272,15 @@
     const { data: logs } = await sb.from('mp_uploads').select('date_from, date_to').eq('marketplace', code)
       .eq('report_type', 'transactions').eq('status', 'ok').not('date_from', 'is', null);
     const spans = mergeSpans((logs || []).map(l => [l.date_from, l.date_to]));
-    const mode = spans.find(([a, b]) => a <= s && b >= e) ? 'actual' : 'estimated';
+    // Split the range: days covered by transaction reports use Amazon's actual
+    // fees; any days outside them use estimates.
+    const covered = [], uncovered = [];
+    for (const [a, b] of spans) { const lo = a > s ? a : s, hi = b < e ? b : e; if (lo <= hi) covered.push([lo, hi]); }
+    let cur = s;
+    for (const [lo, hi] of covered) { if (cur < lo) uncovered.push([cur, addDays(lo, -1)]); if (addDays(hi, 1) > cur) cur = addDays(hi, 1); }
+    if (cur <= e) uncovered.push([cur, e]);
+    const mode = !uncovered.length ? 'actual' : !covered.length ? 'estimated' : 'mixed';
+    const days = list => list.reduce((t, [a, b]) => t + Math.round((parseISO(b) - parseISO(a)) / 86400000) + 1, 0);
 
     const [ads, overheadRows, terms] = await Promise.all([
       rpcAll('mp_profit_ads', args),
@@ -267,10 +297,11 @@
     };
     const charges = new Map();
     let adBilled = 0, fbmOrders = 0, fxEst = 0;
+    const shipUSD = N(settings.fbm_ship_cost_per_order);   // entered in USD
 
-    if (mode === 'actual') {
-      const shipUSD = N(settings.fbm_ship_cost_per_order);   // entered in USD
-      for (const r of await rpcAll('mp_profit_tx', args)) {
+    // ---- Covered days: actual fees ----
+    for (const [a, b] of covered) {
+      for (const r of await rpcAll('mp_profit_tx', { ...args, p_from: a, p_to: b })) {
         fxEst += N(r.fx_estimated);
         if (r.type === 'Transfer') continue;                          // payouts to the bank
         if (!r.sku) {
@@ -293,7 +324,7 @@
           x.units += N(r.qty);
           if (r.fulfillment === 'Amazon') x.fbaUnits += N(r.qty);
           x.cogs += g.cogs * N(r.usd_qty);
-          if (r.fulfillment === 'Seller') { x.ship += shipUSD * N(r.fbm_orders); fbmOrders += N(r.fbm_orders) / (MP.convert(1, 'USD', ccy, e) || 1); }
+          if (r.fulfillment === 'Seller') x.ship += shipUSD * N(r.fbm_orders);
         } else if (r.type === 'Liquidations') {
           x.liquidated += N(r.qty);
           x.cogs += g.cogs * N(r.usd_qty);                            // those units are gone too
@@ -301,25 +332,31 @@
           x.refunds += N(r.qty);
         }
       }
-      if (fxEst) notes.push(`${fxEst.toLocaleString()} ${m.name} transactions used the backup exchange rate because no daily rate was loaded for their dates.`);
-    } else {
+    }
+    if (fxEst) notes.push(`${fxEst.toLocaleString()} ${m.name} transactions used the backup exchange rate because no daily rate was loaded for their dates.`);
+
+    // ---- Uncovered days: estimates ----
+    if (uncovered.length) {
+      const leak = await leakageRate(code, spans, ccy);
       let usedUsFees = false;
-      for (const r of await rpcAll('mp_profit_sales', args)) {
-        const g = matchGroup(r.sku);
-        if (!g) { const u = unmatched.get(r.sku) || { units: 0, revenue: 0 }; u.units += N(r.units); u.revenue += N(r.revenue); unmatched.set(r.sku, u); continue; }
-        const x = line(r.sku, g);
-        const q = N(r.units);
-        const fee = feeFor(g, code, !!r.is_fba, e);
-        if (!fee.own) usedUsFees = true;
-        x.units += q; if (r.is_fba) x.fbaUnits += q;
-        x.revenue += N(r.revenue);
-        x.fees += q * fee.amt;
-        x.cogs += g.cogs * N(r.usd_units);
-        x.leakage += N(r.revenue) * AMAZON_LEAKAGE_RATE;
+      for (const [a, b] of uncovered) {
+        for (const r of await rpcAll('mp_profit_sales', { ...args, p_from: a, p_to: b })) {
+          const g = matchGroup(r.sku);
+          if (!g) { const u = unmatched.get(r.sku) || { units: 0, revenue: 0 }; u.units += N(r.units); u.revenue += N(r.revenue); unmatched.set(r.sku, u); continue; }
+          const x = line(r.sku, g);
+          const q = N(r.units);
+          const fee = feeFor(g, code, !!r.is_fba, b);
+          if (!fee.own) usedUsFees = true;
+          x.units += q; if (r.is_fba) x.fbaUnits += q;
+          x.revenue += N(r.revenue);
+          x.fees += q * fee.amt;
+          x.cogs += g.cogs * N(r.usd_units);
+          x.leakage += N(r.revenue) * leak.rate;
+        }
       }
-      if (code !== 'US' && usedUsFees) notes.push(`${m.name} fees are estimated with the US fee table converted to ${ccy}.`);
-      if (spans.length) notes.push(`${m.name} transaction reports cover ${spans.map(([a, b]) => `${fmtLong(a)} – ${fmtLong(b)}`).join(', ')}. Pick a range inside those dates, or upload reports for the rest of this range, to use Amazon's actual fees.`);
-      else notes.push(`Upload ${m.name} transaction reports covering this range to replace the estimated fees and the 8% leakage with Amazon's actual charges.`);
+      const fmtSpans = list => list.map(([a, b]) => a === b ? fmtLong(a) : `${fmtLong(a)} – ${fmtLong(b)}`).join(', ');
+      notes.push(`${days(uncovered)} of ${days(covered) + days(uncovered)} days (${fmtSpans(uncovered)}) have no transaction report yet, so they use estimated fees plus ${(leak.rate * 100).toFixed(1)}% leakage for refunds and promotions${leak.measured ? `, measured from actual ${m.name} transactions for ${fmtSpans([leak.window])}` : ' (default, not enough transaction history to measure)'}.`);
+      if (code !== 'US' && usedUsFees) notes.push(`${m.name} estimated fees use the US fee table converted to ${ccy}.`);
     }
 
     // Ads: by SKU; spend not tied to a known product is spread by revenue share.
@@ -458,8 +495,10 @@
     for (const r of results) {
       const m = MP.market(r.code);
       html += `<div class="notice">${m.flag} <b>${esc(m.name)}</b>: ${r.mode === 'actual'
-        ? `<span class="tag actual">Actual fees</span> from the transaction report, by the date Amazon posted each order.`
-        : `<span class="tag est">Estimated fees</span> from the fee table, with 8% leakage for refunds and adjustments, by order date.`}
+        ? `<span class="tag actual">Actual fees</span> from the transaction report for every day, by the date Amazon posted each order.`
+        : r.mode === 'mixed'
+        ? `<span class="tag actual">Actual fees</span> for days covered by transaction reports, <span class="tag est">estimated</span> for the rest.`
+        : `<span class="tag est">Estimated fees</span> from the fee table plus leakage for refunds and promotions, by order date.`}
         ${r.notes.length ? '<br>' + r.notes.map(esc).join('<br>') : ''}</div>`;
     }
 
@@ -479,7 +518,7 @@
         <thead><tr><th>Marketplace</th><th>Fees</th><th class="r">Units</th><th class="r">Revenue</th><th class="r">Product profit</th><th class="r">Overhead</th><th class="r">Net profit</th><th class="r">Net margin</th></tr></thead><tbody>`;
       for (const r of results) {
         const m = MP.market(r.code), x = sumLines(r.skus), ov = r.overhead.reduce((a, o) => a + o.amount, 0), n = x.profit - ov;
-        html += `<tr><td>${m.flag} ${esc(m.name)}</td><td><span class="tag ${r.mode === 'actual' ? 'actual' : 'est'}">${r.mode === 'actual' ? 'Actual' : 'Estimated'}</span></td><td class="r">${fmtN(x.units)}</td><td class="r">${money(x.revenue)}</td><td class="r ${cls(x.profit)}">${money(x.profit)}</td><td class="r">${money(ov)}</td><td class="r ${cls(n)}"><b>${money(n)}</b></td><td class="r">${fmtP(x.revenue ? n / x.revenue : null)}</td></tr>`;
+        html += `<tr><td>${m.flag} ${esc(m.name)}</td><td><span class="tag ${r.mode === 'actual' ? 'actual' : 'est'}">${r.mode === 'actual' ? 'Actual' : r.mode === 'mixed' ? 'Mostly actual' : 'Estimated'}</span></td><td class="r">${fmtN(x.units)}</td><td class="r">${money(x.revenue)}</td><td class="r ${cls(x.profit)}">${money(x.profit)}</td><td class="r">${money(ov)}</td><td class="r ${cls(n)}"><b>${money(n)}</b></td><td class="r">${fmtP(x.revenue ? n / x.revenue : null)}</td></tr>`;
       }
       html += '</tbody></table></div>';
     }
@@ -494,7 +533,7 @@
       const groups = new Map();
       for (const x of allLines) { const k = x.group; (groups.get(k) || groups.set(k, []).get(k)).push(x); }
       const rows = [...groups.entries()].map(([g, ls]) => ({ g, ...sumLines(ls) })).sort((a, b) => b.profit - a.profit);
-      html += `<div class="table-wrap scroll"><table><thead><tr><th>Product group</th><th class="r">Units</th>${anyRef ? '<th class="r">Refunded</th>' : ''}<th class="r">Revenue</th><th class="r">Amazon fees</th>${anyReimb ? '<th class="r">Reimbursed</th>' : ''}<th class="r">COGS</th>${anyShip ? '<th class="r">FBM shipping</th>' : ''}<th class="r">Ad spend</th>${anyLeak ? '<th class="r">Leakage (8%)</th>' : ''}<th class="r">Product profit</th><th class="r">Margin</th><th class="r">Profit / unit</th></tr></thead><tbody>`;
+      html += `<div class="table-wrap"><table><thead><tr><th>Product group</th><th class="r">Units</th>${anyRef ? '<th class="r">Refunded</th>' : ''}<th class="r">Revenue</th><th class="r">Amazon fees</th>${anyReimb ? '<th class="r">Reimbursed</th>' : ''}<th class="r">COGS</th>${anyShip ? '<th class="r">FBM shipping</th>' : ''}<th class="r">Ad spend</th>${anyLeak ? '<th class="r">Leakage (est.)</th>' : ''}<th class="r">Product profit</th><th class="r">Margin</th><th class="r">Profit / unit</th></tr></thead><tbody>`;
       for (const r of rows) html += `<tr><td>${esc(r.g)}</td><td class="r">${fmtN(r.units)}</td>${anyRef ? `<td class="r">${fmtN(r.refunds)}</td>` : ''}<td class="r">${money(r.revenue)}</td><td class="r">${money(r.fees)}</td>${anyReimb ? `<td class="r">${money(r.reimb)}</td>` : ''}<td class="r">${money(r.cogs)}</td>${anyShip ? `<td class="r">${money(r.ship)}</td>` : ''}<td class="r">${money(r.ads)}</td>${anyLeak ? `<td class="r">${money(r.leakage)}</td>` : ''}<td class="r ${cls(r.profit)}"><b>${money(r.profit)}</b></td><td class="r">${fmtP(r.revenue ? r.profit / r.revenue : null)}</td><td class="r">${r.units ? money(r.profit / r.units, 2) : '—'}</td></tr>`;
       html += `<tr class="total"><td>Total</td><td class="r">${fmtN(t.units)}</td>${anyRef ? `<td class="r">${fmtN(t.refunds)}</td>` : ''}<td class="r">${money(t.revenue)}</td><td class="r">${money(t.fees)}</td>${anyReimb ? `<td class="r">${money(t.reimb)}</td>` : ''}<td class="r">${money(t.cogs)}</td>${anyShip ? `<td class="r">${money(t.ship)}</td>` : ''}<td class="r">${money(t.ads)}</td>${anyLeak ? `<td class="r">${money(t.leakage)}</td>` : ''}<td class="r ${cls(t.profit)}">${money(t.profit)}</td><td class="r">${fmtP(t.revenue ? t.profit / t.revenue : null)}</td><td class="r">${t.units ? money(t.profit / t.units, 2) : '—'}</td></tr>`;
       html += '</tbody></table></div>';
@@ -503,7 +542,7 @@
       for (const x of allLines) { const k = MP.isAll() ? x.sku : x.sku; (bySku.get(k) || bySku.set(k, []).get(k)).push(x); }
       const rows = [...bySku.entries()].map(([sku, ls]) => ({ sku, group: ls[0].group, ...sumLines(ls) })).sort((a, b) => b.revenue - a.revenue);
       const pu = (v, u) => u ? money(v / u, 2) : '—';
-      html += `<div class="table-wrap scroll"><table><thead><tr><th>SKU</th><th>Group</th><th class="r">Units</th><th class="r">FBA</th><th class="r">Avg price</th><th class="r">Fees / unit</th>${anyReimb ? '<th class="r">Reimbursed / unit</th>' : ''}<th class="r">COGS / unit</th>${anyShip ? '<th class="r">Ship / unit</th>' : ''}<th class="r">Ads / unit</th>${anyLeak ? '<th class="r">Leakage / unit</th>' : ''}<th class="r">Profit / unit</th><th class="r">Product profit</th><th class="r">Margin</th></tr></thead><tbody>`;
+      html += `<div class="table-wrap"><table><thead><tr><th>SKU</th><th>Group</th><th class="r">Units</th><th class="r">FBA</th><th class="r">Avg price</th><th class="r">Fees / unit</th>${anyReimb ? '<th class="r">Reimbursed / unit</th>' : ''}<th class="r">COGS / unit</th>${anyShip ? '<th class="r">Ship / unit</th>' : ''}<th class="r">Ads / unit</th>${anyLeak ? '<th class="r">Leakage / unit</th>' : ''}<th class="r">Profit / unit</th><th class="r">Product profit</th><th class="r">Margin</th></tr></thead><tbody>`;
       for (const r of rows) html += `<tr><td class="mono">${esc(r.sku)}</td><td>${esc(r.group)}</td><td class="r">${fmtN(r.units)}</td><td class="r">${fmtN(r.fbaUnits)}</td><td class="r">${pu(r.revenue, r.units)}</td><td class="r">${pu(r.fees, r.units)}</td>${anyReimb ? `<td class="r">${pu(r.reimb, r.units)}</td>` : ''}<td class="r">${pu(r.cogs, r.units)}</td>${anyShip ? `<td class="r">${pu(r.ship, r.units)}</td>` : ''}<td class="r">${pu(r.ads, r.units)}</td>${anyLeak ? `<td class="r">${pu(r.leakage, r.units)}</td>` : ''}<td class="r ${cls(r.profit)}"><b>${pu(r.profit, r.units)}</b></td><td class="r ${cls(r.profit)}">${money(r.profit)}</td><td class="r">${fmtP(r.revenue ? r.profit / r.revenue : null)}</td></tr>`;
       html += '</tbody></table></div><div class="notice">Per-unit figures divide each cost by units ordered in the range. Refunds and ads on a SKU with few sales can make one unit look unusually costly.</div>';
     }
@@ -528,7 +567,7 @@
       const list = [...un.entries()].sort((a, b) => b[1].revenue - a[1].revenue);
       const tot = list.reduce((a, [, v]) => a + v.revenue, 0);
       html += `<div class="sec"><h2>SKUs not in a product group</h2><div class="sub">${list.length} SKUs, ${money(tot)} revenue left out of profit. Add their prefixes to a product group in Settings.</div></div>
-        <div class="table-wrap scroll" style="max-height:260px"><table><thead><tr><th>SKU</th><th class="r">Units</th><th class="r">Revenue</th></tr></thead><tbody>
+        <div class="table-wrap"><table><thead><tr><th>SKU</th><th class="r">Units</th><th class="r">Revenue</th></tr></thead><tbody>
         ${list.slice(0, 50).map(([k, v]) => `<tr><td class="mono">${esc(k)}</td><td class="r">${fmtN(v.units)}</td><td class="r">${money(v.revenue)}</td></tr>`).join('')}</tbody></table></div>`;
     }
 
