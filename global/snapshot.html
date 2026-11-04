@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snapshot — Burlebo Analytics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/auth.js"></script>
+<script src="/global/marketplace.js"></script>
+<script src="/global/pace.js"></script>
+<style>
+  :root {
+    --bg: #0d0f12; --panel: #14171c; --panel-2: #1a1e25;
+    --border: #252a33; --text: #e8eaed; --text-dim: #8a92a0;
+    --accent: #ff6b35; --green: #4ade80; --red: #f87171; --yellow: #fbbf24; --blue: #38bdf8; --purple: #a78bfa; --gold: #fbbf24; --teal: #2dd4bf;
+    --radius: 10px; --radius-sm: 6px;
+    --coy: #ff6b35;      --coy-bg: rgba(255, 107, 53, 0.15);
+    --designer: #a78bfa; --designer-bg: rgba(167, 139, 250, 0.15);
+    --admin: #4ade80;    --admin-bg: rgba(74, 222, 128, 0.15);
+    --employee: #38bdf8; --employee-bg: rgba(56, 189, 248, 0.15);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'DM Sans', system-ui, sans-serif; }
+  header { border-bottom: 1px solid var(--border); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; background: var(--panel); }
+  header h1 { font-size: 18px; font-weight: 700; margin: 0; }
+  header nav { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  header nav a { color: var(--text-dim); text-decoration: none; font-size: 14px; font-weight: 500; }
+  header nav a:hover { color: var(--text); }
+  header nav a.active { color: var(--accent); }
+  .role-pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .role-pill:hover { opacity: 0.85; }
+  .role-pill.coy { background: var(--coy-bg); color: var(--coy); }
+  .role-pill.designer { background: var(--designer-bg); color: var(--designer); }
+  .role-pill.admin { background: var(--admin-bg); color: var(--admin); }
+  .role-pill.employee { background: var(--employee-bg); color: var(--employee); }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 28px 32px; }
+  main.hidden { display: none; }
+  .page-title { font-size: 28px; font-weight: 700; margin: 0 0 4px 0; }
+  .page-sub { font-size: 14px; color: var(--text-dim); margin: 0 0 24px 0; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 20px; }
+  .ctrl-label { font-size: 12px; color: var(--text-dim); font-weight: 500; }
+  .btn { padding: 7px 14px; border-radius: var(--radius-sm); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); }
+  .btn:hover { background: #1f242c; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.primary:hover { opacity: 0.92; }
+  .btn.ghost { background: transparent; color: var(--text-dim); }
+
+  .section-title { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); margin: 24px 0 12px; }
+  .section-title:first-child { margin-top: 0; }
+
+  /* 3-column daily row */
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+  @media (max-width: 900px) { .grid-3 { grid-template-columns: 1fr; } }
+
+  /* 6-column rolling-kpi row */
+  .kpi-row-6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 12px; }
+  @media (max-width: 1100px) { .kpi-row-6 { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 600px)  { .kpi-row-6 { grid-template-columns: repeat(2, 1fr); } }
+
+  /* 4-column smaller rolling-kpi row */
+  .kpi-row-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+  @media (max-width: 800px) { .kpi-row-4 { grid-template-columns: repeat(2, 1fr); } }
+
+  .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; position: relative; overflow: hidden; }
+  .kpi::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+  .kpi.orange::before { background: var(--accent); }
+  .kpi.blue::before { background: var(--blue); }
+  .kpi.green::before { background: var(--green); }
+  .kpi.purple::before { background: var(--purple); }
+  .kpi.gold::before { background: var(--gold); }
+  .kpi.red::before { background: var(--red); }
+  .kpi.teal::before { background: var(--teal); }
+  .kpi-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  .kpi-value { font-size: 22px; font-weight: 700; line-height: 1.1; }
+  .kpi-delta { font-size: 12px; font-weight: 600; margin-top: 4px; }
+  .kpi-delta.up { color: var(--green); }
+  .kpi-delta.down { color: var(--red); }
+  .kpi-delta.flat { color: var(--text-dim); }
+  .kpi-day-card .kpi-value { font-size: 26px; }
+
+  .mini-kpi { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; position: relative; overflow: hidden; }
+  .mini-kpi::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+  .mini-kpi.orange::before { background: var(--accent); }
+  .mini-kpi.gold::before { background: var(--gold); }
+  .mini-kpi.purple::before { background: var(--purple); }
+  .mini-kpi.blue::before { background: var(--blue); }
+  .mini-kpi.teal::before { background: var(--teal); }
+  .mini-kpi-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+  .mini-kpi-value { font-size: 18px; font-weight: 700; line-height: 1.1; }
+
+  /* Goal card */
+  .goal-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 24px; }
+  .goal-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; gap: 12px; flex-wrap: wrap; }
+  .goal-main { font-size: 22px; font-weight: 700; }
+  .goal-main .of-goal { font-weight: 500; color: var(--text-dim); font-size: 13px; }
+  .goal-pace { font-size: 20px; font-weight: 700; }
+  .goal-pace.ahead { color: var(--green); }
+  .goal-pace.behind { color: var(--red); }
+  .goal-bar-track { height: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .goal-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #ff9758); transition: width 0.4s; }
+  .goal-foot { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-dim); margin-top: 8px; }
+
+  /* Two-column for top SKUs / FBA alerts */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
+  .card-title { font-size: 14px; font-weight: 600; margin: 0 0 12px 0; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 4px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-dim); font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; }
+  td.r, th.r { text-align: right; }
+  td.mono { font-family: 'SF Mono', Menlo, monospace; font-size: 12px; }
+  tr:last-child td { border-bottom: none; }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge.green  { background: rgba(74, 222, 128, 0.15);  color: var(--green); }
+  .badge.orange { background: rgba(255, 107, 53, 0.15);  color: var(--accent); }
+  .badge.red    { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+  .badge.muted  { background: var(--panel-2);            color: var(--text-dim); }
+
+  .all-good { color: var(--green); font-size: 13px; padding: 20px 0; }
+  .scroll-wrap { max-height: 260px; overflow-y: auto; }
+
+  .empty { text-align: center; padding: 60px 20px; color: var(--text-dim); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+  .empty-icon { font-size: 36px; margin-bottom: 8px; }
+  .empty-title { font-size: 15px; margin-bottom: 4px; color: var(--text); }
+  .empty-sub { font-size: 13px; }
+  .loading { color: var(--text-dim); font-size: 14px; padding: 40px 0; text-align: center; }
+
+  /* Role modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  .modal-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; width: 380px; max-width: calc(100vw - 32px); }
+  .modal-title { font-size: 18px; font-weight: 700; margin: 0 0 6px 0; }
+  .modal-sub { font-size: 13px; color: var(--text-dim); margin: 0 0 20px 0; }
+  .modal-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .modal-option { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 13px 14px; border-radius: var(--radius-sm); font-family: inherit; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+  .modal-option:hover { background: #1f242c; border-color: #2f3540; }
+  .modal-option .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .modal-option .dot.coy { background: var(--coy); }
+  .modal-option .dot.designer { background: var(--designer); }
+  .modal-option .dot.admin { background: var(--admin); }
+  .modal-option .dot.employee { background: var(--employee); }
+  .pw-field { display: none; margin-top: 8px; }
+  .pw-field input { width: 100%; padding: 11px 12px; font-family: 'DM Sans', sans-serif; font-size: 14px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); outline: none; margin-bottom: 8px; }
+  .pw-field input:focus { border-color: var(--accent); }
+  .pw-error { display: none; font-size: 12px; color: var(--red); margin-bottom: 8px; }
+  .pw-row { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+
+<!-- Role modal -->
+
+<header id="app-header" style="display:none;">
+  <h1>Burlebo Analytics</h1>
+  <nav id="main-nav">
+    <span class="role-pill" id="role-pill"></span>
+  </nav>
+</header>
+
+<main id="app-main" class="hidden">
+  <div class="page-title">Snapshot <span id="snapshot-badge"></span></div>
+  <div class="page-sub">At-a-glance daily summary: latest revenue, rolling windows, goal pace, low-stock alerts</div>
+
+  <div class="controls">
+    <button class="btn primary" onclick="loadSnapshot()">🔄 Refresh</button>
+    <span class="ctrl-label" id="snapshot-date"></span>
+  </div>
+
+  <div id="snapshot-content">
+    <div class="empty"><div class="empty-icon">⚡</div><div class="empty-title">Loading snapshot…</div></div>
+  </div>
+</main>
+
+<script>
+  // ============================================================================
+  // Shared nav loader
+  // ============================================================================
+  async function loadSharedNav() {
+    try {
+      const r = await fetch('/nav.html', { cache: 'no-cache' });
+      if (!r.ok) return;
+      const html = await r.text();
+      const nav = document.getElementById('main-nav');
+      const pill = document.getElementById('role-pill');
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const here = window.location.pathname.replace(/\/$/, '') || '/';
+      for (const a of tmp.querySelectorAll('a')) {
+        const href = a.getAttribute('href');
+        if (href === here || (href === '/' && here === '/')) a.classList.add('active');
+        nav.insertBefore(a, pill);
+      }
+    } catch (err) { console.error('Nav load failed:', err); }
+  }
+
+  // ============================================================================
+  // Supabase + auth
+  // ============================================================================
+  const SUPABASE_URL = 'https://uoetojuyzyngfopsmmxk.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvZXRvanV5enluZ2ZvcHNtbXhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzODY3ODIsImV4cCI6MjA5NDk2Mjc4Mn0.FVhs_0waTWIYkTVY2j4HERhlovggIFau07RuBu69M8E';
+  const sb = window.sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+
+  window.onAuthReady = async function (r) {
+    loadSharedNav();
+    await MP.init(sb);
+    MP.onChange(() => loadSnapshot());
+    loadSnapshot();
+  };
+
+  // ============================================================================
+  // Helpers
+  // ============================================================================
+  function toISO(d) { return d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0'); }
+  function parseISO(s) {
+    if (!s) return null;
+    const parts = String(s).slice(0,10).split('-').map(n => parseInt(n,10));
+    if (parts.length !== 3 || parts.some(isNaN)) return null;
+    return new Date(Date.UTC(parts[0], parts[1]-1, parts[2]));
+  }
+  function addDays(d, n) { const x = new Date(d.getTime()); x.setUTCDate(x.getUTCDate()+n); return x; }
+  function daysBetween(a, b) { return Math.round((b.getTime() - a.getTime()) / 86400000); }
+  function fmt(n)  { if (n==null) return '—'; return MP.money(Math.round(n), 0); }
+  function fmtN(n) { if (n==null) return '—'; return Math.round(n).toLocaleString(); }
+  function fmtP(n) { if (n==null) return '—'; return (n*100).toFixed(2)+'%'; }
+  function fmtPn(n) { if (n==null) return '—'; return (n >= 0 ? '+' : '') + (n*100).toFixed(1)+'%'; }
+  function formatLongDate(iso) {
+    const d = parseISO(iso);
+    if (!d) return iso;
+    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  }
+  function deltaCls(v) {
+    if (v === null || v === undefined) return 'flat';
+    if (v > 0.001) return 'up';
+    if (v < -0.001) return 'down';
+    return 'flat';
+  }
+  function deltaArrow(v) {
+    if (v === null || v === undefined) return '—';
+    if (v > 0.001) return '▲';
+    if (v < -0.001) return '▼';
+    return '—';
+  }
+
+  function calcVelocity(u7, u30, daysInFba) {
+    if (daysInFba && daysInFba >= 30) {
+      const daily30 = u30 > 0 ? u30 / 30 : 0;
+      const daily7  = u7  > 0 ? u7  / 7  : 0;
+      if (daily30 <= 0) return 0;
+      let vel = daily30;
+      const adj7 = Math.min(daily7, daily30 * 1.5);
+      if (adj7 >= daily30 * 1.25) vel = daily30 * 0.65 + adj7 * 0.35;
+      return vel;
+    }
+    return u7 > 0 ? u7 / 7 : 0;
+  }
+
+  // ============================================================================
+  // Data load
+  // ============================================================================
+  async function fetchPaged(table, columns, filters = []) {
+    const all = [];
+    let from = 0;
+    const page = 1000;
+    while (true) {
+      let q = sb.from(table).select(columns);
+      for (const [k, op, v] of filters) q = q[op](k, v);
+      q = q.order('id', { ascending: true }).range(from, from + page - 1);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      if (!data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < page) break;
+      from += page;
+    }
+    return all;
+  }
+
+  async function loadSnapshot() {
+    document.getElementById('snapshot-content').innerHTML = '<div class="loading">Loading snapshot…</div>';
+
+    try {
+      // Latest sales date
+      const codes = MP.codes();
+      const ccy = MP.displayCurrency();
+      const { data: latestRow } = await sb.from('mp_sales_daily').select('date').in('marketplace', codes).order('date', { ascending: false }).limit(1);
+      const latestSalesISO = (latestRow && latestRow[0])
+        ? ((latestRow[0].date instanceof Date) ? toISO(latestRow[0].date) : String(latestRow[0].date).slice(0,10))
+        : null;
+
+      if (!latestSalesISO) {
+        document.getElementById('snapshot-content').innerHTML = '<div class="empty"><div class="empty-icon">📭</div><div class="empty-title">No sales data uploaded yet</div><div class="empty-sub">Upload a daily sales file to get started.</div></div>';
+        return;
+      }
+
+      const latestDate = parseISO(latestSalesISO);
+      const startDate30 = addDays(latestDate, -29);
+      const startDate30Str = toISO(startDate30);
+
+      await MP.loadFx(startDate30Str, latestSalesISO);
+
+      // Sales for this view, in the display currency at each day's rate.
+      const salesP = fetchPaged('mp_sales_daily',
+        'date, sku, units, revenue, sessions, is_fba, currency',
+        [['marketplace', 'in', codes], ['date', 'gte', startDate30Str], ['date', 'lte', latestSalesISO]]);
+
+      // Daily ad spend totals, summed in Supabase (Step 31 SQL).
+      const adsP = sb.rpc('mp_ads_daily_totals', { p_mks: codes, p_from: startDate30Str, p_to: latestSalesISO, p_ccy: ccy });
+
+      // FBA stock alerts compare US FBA stock with sales, so they only make
+      // sense where US stock is what's selling (US and All Markets views).
+      const fbaP = MP.current() === 'CA' ? Promise.resolve([])
+        : fetchPaged('mp_fba_inventory_snapshot', 'sku, raw_sku, on_hand, inbound_total', [['marketplace', 'eq', 'US']]);
+
+      const paceP = Pace.forMarkets(codes);
+
+      const [sales30raw, adsRes, fbaRows, pace] = await Promise.all([salesP, adsP, fbaP, paceP]);
+      if (adsRes.error) throw new Error('mp_ads_daily_totals: ' + adsRes.error.message + ' (run the Step 31 SQL)');
+      const sales30 = sales30raw.map(r => ({ ...r, revenue: MP.toDisplay(Number(r.revenue) || 0, r.currency, r.date) }));
+      const ads30 = adsRes.data || [];
+      const goalSalesRows = [], target = 0, goalStartStr = latestSalesISO, goalEndStr = latestSalesISO;
+
+      const result = buildSnapshot({
+        sales30, ads30, fbaRows, goalSalesRows,
+        latestSalesISO, target, goalStartStr, goalEndStr,
+      });
+
+      // Goal pace: the same seasonal pace as Analytics, shown in the display currency.
+      const gs = Pace.summary(pace, codes);
+      const today = toISO(new Date());
+      const cv = v => MP.convert(v, 'USD', ccy, today);
+      result.goal = gs ? { target: cv(gs.goal), total_actual: cv(gs.actual), pace_diff: gs.paceDiff, daily_required: cv(gs.dailyRequired), pct_of_goal: gs.pct } : null;
+      result.goal_note = !gs ? (codes.map(c => pace[c]).find(p => p && p.state === 'future') ? `Goal pacing starts ${formatLongDate(pace[codes.find(c => pace[c].state === 'future')].start)}.` : 'No goal set for this marketplace yet.') : '';
+      document.getElementById('snapshot-badge').innerHTML = MP.badgeHtml();
+      window._snapshotData = result;
+      renderSnapshot();
+    } catch (err) {
+      document.getElementById('snapshot-content').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error</div><div class="empty-sub">${err.message}</div></div>`;
+    }
+  }
+
+  function buildSnapshot({ sales30, ads30, fbaRows, goalSalesRows, latestSalesISO, target, goalStartStr, goalEndStr }) {
+    const latestDate = parseISO(latestSalesISO);
+
+    // Per-day aggregates from last-30-days sales
+    const dayRevMap = new Map();   // date -> revenue
+    const dayUnitsMap = new Map();
+    const daySessMap = new Map();
+    const skuRevWindow = new Map(); // sku -> revenue (7d window)
+    for (const r of sales30) {
+      const dStr = (r.date instanceof Date) ? toISO(r.date) : String(r.date).slice(0,10);
+      const rev = parseFloat(r.revenue || 0);
+      const u = r.units || 0;
+      const s = r.sessions || 0;
+      dayRevMap.set(dStr,  (dayRevMap.get(dStr)  || 0) + rev);
+      dayUnitsMap.set(dStr,(dayUnitsMap.get(dStr)|| 0) + u);
+      daySessMap.set(dStr, (daySessMap.get(dStr) || 0) + s);
+
+      const d = parseISO(dStr);
+      if (d && daysBetween(d, latestDate) < 7) {
+        const sku = String(r.sku || '').toUpperCase();
+        skuRevWindow.set(sku, (skuRevWindow.get(sku) || 0) + rev);
+      }
+    }
+
+    // Daily comparisons
+    const d0 = latestSalesISO;
+    const d1 = toISO(addDays(latestDate, -1));
+    const d7 = toISO(addDays(latestDate, -7));
+    const d0Rev = dayRevMap.get(d0) || 0;
+    const d1Rev = dayRevMap.get(d1) || 0;
+    const d7Rev = dayRevMap.get(d7) || 0;
+
+    // Rolling 7 / 30 windows
+    let rev7=0, rev30=0, units7=0, units30=0, sess7=0, sess30=0;
+    for (const [dStr, rev] of dayRevMap.entries()) {
+      const d = parseISO(dStr);
+      if (!d) continue;
+      const diff = daysBetween(d, latestDate);
+      if (diff < 7)  { rev7  += rev; units7  += dayUnitsMap.get(dStr) || 0; sess7  += daySessMap.get(dStr) || 0; }
+      if (diff < 30) { rev30 += rev; units30 += dayUnitsMap.get(dStr) || 0; sess30 += daySessMap.get(dStr) || 0; }
+    }
+
+    // Ad spend rolling
+    let adSpend7 = 0, adSpend30 = 0;
+    for (const a of ads30) {
+      const dStr = (a.date instanceof Date) ? toISO(a.date) : String(a.date).slice(0,10);
+      const d = parseISO(dStr);
+      if (!d) continue;
+      const diff = daysBetween(d, latestDate);
+      const spend = parseFloat(a.spend || 0);
+      if (diff < 7)  adSpend7  += spend;
+      if (diff < 30) adSpend30 += spend;
+    }
+
+    // FBA alerts — effective inv = fulfillable + inbound. Need velocity per SKU.
+    // To compute velocity we need u7/u30/days_in_fba per SKU. Reuse 30-day sales data.
+    const skuU7 = new Map(); const skuU30 = new Map(); const skuFirstFba = new Map();
+    for (const r of sales30) {
+      if (!r.is_fba) continue;
+      const dStr = (r.date instanceof Date) ? toISO(r.date) : String(r.date).slice(0,10);
+      const d = parseISO(dStr);
+      if (!d) continue;
+      const sku = String(r.sku || '').toUpperCase();
+      const diff = daysBetween(d, latestDate);
+      if (diff < 7)  skuU7.set(sku,  (skuU7.get(sku)  || 0) + (r.units || 0));
+      if (diff < 30) skuU30.set(sku, (skuU30.get(sku) || 0) + (r.units || 0));
+      const cur = skuFirstFba.get(sku);
+      if (!cur || d < cur) skuFirstFba.set(sku, d);
+    }
+
+    const alerts = [];
+    for (const f of fbaRows) {
+      const raw = String(f.raw_sku || '').toUpperCase();
+      if (!(raw.startsWith('FBA-') || raw.startsWith('FBA2-'))) continue;
+      const sku = String(f.sku || '').toUpperCase();
+      // FBA stock = on_hand from Planning Report (single source of truth).
+      const ful = f.on_hand || 0;
+      const inb = f.inbound_total || 0;   // informational only
+      const eff = ful;                    // on_hand already includes inbound
+      const u7 = skuU7.get(sku) || 0;
+      const u30 = skuU30.get(sku) || 0;
+      const first = skuFirstFba.get(sku);
+      const daysInFba = first ? daysBetween(first, latestDate) + 1 : null;
+      const vel = calcVelocity(u7, u30, daysInFba);
+      let dos;
+      if (eff === 0) dos = 0;
+      else if (vel > 0) dos = Math.round((eff / vel) * 10) / 10;
+      else dos = null;
+      if (dos !== null && dos < 14) {
+        alerts.push({ sku, fulfillable: ful, inbound: inb, effective: eff, days_supply: dos, velocity: vel });
+      }
+    }
+    alerts.sort((a, b) => (a.days_supply ?? 999) - (b.days_supply ?? 999));
+
+    // Goal calculations
+    let totalActual = 0;
+    for (const r of goalSalesRows) totalActual += parseFloat(r.revenue || 0);
+    const goalStart = parseISO(goalStartStr);
+    const goalEnd = parseISO(goalEndStr);
+    const totalDays = goalStart && goalEnd ? daysBetween(goalStart, goalEnd) + 1 : 365;
+    const dailyReq = target / totalDays;
+    // For consistency with the local "today vs goalStart" calc, use latestDate as "today"
+    // (since the data is what we have. Using actual today could mislead if data is behind.)
+    const daysElapsed = goalStart ? daysBetween(goalStart, latestDate) + 1 : 0;
+    const requiredToDate = dailyReq * Math.max(0, daysElapsed);
+    const paceDiff = requiredToDate > 0 ? (totalActual - requiredToDate) / requiredToDate : 0;
+
+    // Top 5 SKUs in last 7 days
+    const top5 = [...skuRevWindow.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([sku, revenue]) => ({ sku, revenue: Math.round(revenue * 100) / 100 }));
+
+    return {
+      latest_date: latestSalesISO,
+      daily: {
+        latest: { date: d0, revenue: Math.round(d0Rev * 100) / 100 },
+        prev_day: { date: d1, revenue: Math.round(d1Rev * 100) / 100 },
+        same_day_last_week: { date: d7, revenue: Math.round(d7Rev * 100) / 100 },
+      },
+      rolling: {
+        rev_7: Math.round(rev7 * 100) / 100, rev_30: Math.round(rev30 * 100) / 100,
+        units_7: units7, units_30: units30,
+        tacos_7:  rev7  > 0 ? adSpend7 / rev7  : 0,
+        tacos_30: rev30 > 0 ? adSpend30 / rev30 : 0,
+        conv_7:  sess7 > 0 ? units7 / sess7 : 0,
+        conv_30: sess30 > 0 ? units30 / sess30 : 0,
+        ad_spend_7:  Math.round(adSpend7 * 100) / 100,
+        ad_spend_30: Math.round(adSpend30 * 100) / 100,
+      },
+      goal: {
+        target,
+        total_actual: Math.round(totalActual * 100) / 100,
+        pace_diff: paceDiff,
+        daily_required: Math.round(dailyReq * 100) / 100,
+        pct_of_goal: target > 0 ? totalActual / target : 0,
+      },
+      fba_alerts: alerts.slice(0, 20),
+      top5_skus_7d: top5,
+    };
+  }
+
+  // ============================================================================
+  // Render
+  // ============================================================================
+  function renderSnapshot() {
+    const d = window._snapshotData;
+    if (!d) return;
+
+    document.getElementById('snapshot-date').textContent = `Data through: ${formatLongDate(d.latest_date)}`;
+
+    const dd = d.daily, r = d.rolling, g = d.goal;
+    const dayDelta = dd.prev_day.revenue > 0 ? (dd.latest.revenue - dd.prev_day.revenue) / dd.prev_day.revenue : null;
+    const wkDelta  = dd.same_day_last_week.revenue > 0 ? (dd.latest.revenue - dd.same_day_last_week.revenue) / dd.same_day_last_week.revenue : null;
+
+    let html = '';
+
+    // --- LATEST DAY (3 cards) ---
+    html += '<div class="section-title">📅 Latest Day</div>';
+    html += '<div class="grid-3">';
+    html += `<div class="kpi orange kpi-day-card">
+      <div class="kpi-label">Revenue (${formatLongDate(dd.latest.date)})</div>
+      <div class="kpi-value">${fmt(dd.latest.revenue)}</div>
+      ${dayDelta !== null ? `<div class="kpi-delta ${deltaCls(dayDelta)}">${deltaArrow(dayDelta)} ${fmtPn(dayDelta)} vs prev day</div>` : '<div class="kpi-delta flat">— no prev day data</div>'}
+    </div>`;
+    html += `<div class="kpi blue kpi-day-card">
+      <div class="kpi-label">Prev Day (${formatLongDate(dd.prev_day.date)})</div>
+      <div class="kpi-value">${fmt(dd.prev_day.revenue)}</div>
+    </div>`;
+    html += `<div class="kpi purple kpi-day-card">
+      <div class="kpi-label">Same Day Last Week (${formatLongDate(dd.same_day_last_week.date)})</div>
+      <div class="kpi-value">${fmt(dd.same_day_last_week.revenue)}</div>
+      ${wkDelta !== null ? `<div class="kpi-delta ${deltaCls(wkDelta)}">${deltaArrow(wkDelta)} ${fmtPn(wkDelta)} WoW</div>` : '<div class="kpi-delta flat">— no data 7 days ago</div>'}
+    </div>`;
+    html += '</div>';
+
+    // --- ROLLING WINDOWS (6 mini KPIs + 4 mini KPIs) ---
+    html += '<div class="section-title">📈 Rolling Windows</div>';
+    html += '<div class="kpi-row-6">';
+    html += miniKpi('Revenue 7D',  fmt(r.rev_7),  'orange');
+    html += miniKpi('Revenue 30D', fmt(r.rev_30), 'orange');
+    html += miniKpi('Ad Spend 7D',  fmt(r.ad_spend_7),  'gold');
+    html += miniKpi('Ad Spend 30D', fmt(r.ad_spend_30), 'gold');
+    html += miniKpi('TACOS 7D',  fmtP(r.tacos_7),  'purple');
+    html += miniKpi('TACOS 30D', fmtP(r.tacos_30), 'purple');
+    html += '</div>';
+
+    html += '<div class="kpi-row-4">';
+    html += miniKpi('Units 7D',  fmtN(r.units_7),  'blue');
+    html += miniKpi('Units 30D', fmtN(r.units_30), 'blue');
+    html += miniKpi('Conv% 7D',  fmtP(r.conv_7),   'teal');
+    html += miniKpi('Conv% 30D', fmtP(r.conv_30),  'teal');
+    html += '</div>';
+
+    // --- GOAL PACE ---
+    if (!g) {
+      html += '<div class="section-title">🎯 Goal Pace</div>';
+      html += `<div class="goal-card"><div class="goal-foot"><span>${d.goal_note}</span></div></div>`;
+    } else {
+    const ahead = g.pace_diff >= 0;
+    const pct = Math.min(100, g.pct_of_goal * 100);
+    html += '<div class="section-title">🎯 Goal Pace</div>';
+    html += `<div class="goal-card">
+      <div class="goal-header">
+        <div class="goal-main">${fmt(g.total_actual)} <span class="of-goal">of ${fmt(g.target)} goal</span></div>
+        <div class="goal-pace ${ahead ? 'ahead' : 'behind'}">${fmtPn(g.pace_diff)} vs pace</div>
+      </div>
+      <div class="goal-bar-track"><div class="goal-bar-fill" style="width:${pct.toFixed(1)}%"></div></div>
+      <div class="goal-foot">
+        <span>${pct.toFixed(1)}% complete</span>
+        <span>Need ${fmt(g.daily_required)}/day</span>
+      </div>
+    </div>`;
+    }
+
+    // --- TWO COLUMNS: Top 5 + FBA Alerts ---
+    html += '<div class="grid-2">';
+
+    // Top 5
+    html += '<div class="card"><div class="card-title">🏆 Top SKUs — Last 7 Days</div>';
+    if (d.top5_skus_7d.length === 0) {
+      html += '<div style="color:var(--text-dim);font-size:13px;padding:20px 0;">No sales in the last 7 days.</div>';
+    } else {
+      html += '<table><thead><tr><th>SKU</th><th class="r">Revenue</th></tr></thead><tbody>';
+      for (const s of d.top5_skus_7d) {
+        html += `<tr><td class="mono">${s.sku}</td><td class="r">${fmt(s.revenue)}</td></tr>`;
+      }
+      html += '</tbody></table>';
+    }
+    html += '</div>';
+
+    // FBA Alerts
+    html += '<div class="card"><div class="card-title">⚠️ FBA Low Stock Alerts (&lt;14 Days)</div>';
+    if (d.fba_alerts.length === 0) {
+      html += '<div class="all-good">✓ All SKUs have 14+ days of supply</div>';
+    } else {
+      html += '<div class="scroll-wrap"><table><thead><tr>';
+      html += '<th>SKU</th><th class="r">FBA</th><th class="r">Inbound</th><th class="r">Effective</th><th class="r">Days</th>';
+      html += '</tr></thead><tbody>';
+      for (const a of d.fba_alerts) {
+        const cls = a.days_supply < 7 ? 'red' : 'orange';
+        html += `<tr>
+          <td class="mono">${a.sku}</td>
+          <td class="r">${fmtN(a.fulfillable)}</td>
+          <td class="r" style="color:var(--blue);">${a.inbound > 0 ? fmtN(a.inbound) : '—'}</td>
+          <td class="r" style="font-weight:600;">${fmtN(a.effective)}</td>
+          <td class="r"><span class="badge ${cls}">${Math.round(a.days_supply)}d</span></td>
+        </tr>`;
+      }
+      html += '</tbody></table></div>';
+    }
+    html += '</div>';
+
+    html += '</div>'; // close grid-2
+
+    document.getElementById('snapshot-content').innerHTML = html;
+  }
+
+  function miniKpi(label, value, color) {
+    return `<div class="mini-kpi ${color}"><div class="mini-kpi-label">${label}</div><div class="mini-kpi-value">${value}</div></div>`;
+  }
+</script>
+
+</body>
+</html>

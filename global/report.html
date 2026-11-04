@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Big Picture Report — Burlebo Analytics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/auth.js"></script>
+<script src="/global/marketplace.js"></script>
+<script src="/global/profit-engine.js"></script>
+<script src="/global/pace.js"></script>
+<style>
+  :root {
+    --bg: #0d0f12; --panel: #14171c; --panel-2: #1a1e25;
+    --border: #252a33; --text: #e8eaed; --text-dim: #8a92a0;
+    --accent: #ff6b35; --green: #4ade80; --red: #f87171; --yellow: #fbbf24; --blue: #38bdf8; --purple: #a78bfa;
+    --radius: 10px; --radius-sm: 6px;
+    --coy: #ff6b35;      --coy-bg: rgba(255, 107, 53, 0.15);
+    --designer: #a78bfa; --designer-bg: rgba(167, 139, 250, 0.15);
+    --admin: #4ade80;    --admin-bg: rgba(74, 222, 128, 0.15);
+    --employee: #38bdf8; --employee-bg: rgba(56, 189, 248, 0.15);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'DM Sans', system-ui, sans-serif; }
+  header { border-bottom: 1px solid var(--border); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; background: var(--panel); }
+  header h1 { font-size: 18px; font-weight: 700; margin: 0; }
+  header nav { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  header nav a { color: var(--text-dim); text-decoration: none; font-size: 14px; font-weight: 500; }
+  header nav a:hover { color: var(--text); }
+  header nav a.active { color: var(--accent); }
+  .role-pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .role-pill:hover { opacity: 0.85; }
+  .role-pill.coy { background: var(--coy-bg); color: var(--coy); }
+  .role-pill.designer { background: var(--designer-bg); color: var(--designer); }
+  .role-pill.admin { background: var(--admin-bg); color: var(--admin); }
+  .role-pill.employee { background: var(--employee-bg); color: var(--employee); }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 28px 32px; }
+  main.hidden { display: none; }
+  .page-title { font-size: 28px; font-weight: 700; margin: 0 0 4px 0; }
+  .page-sub { font-size: 14px; color: var(--text-dim); margin: 0 0 24px 0; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 20px; }
+  .ctrl-label { font-size: 12px; color: var(--text-dim); font-weight: 500; }
+  .controls input[type=date] {
+    padding: 7px 10px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-family: inherit; font-size: 13px; color-scheme: dark; width: 145px;
+  }
+  .controls input:focus { border-color: var(--accent); outline: none; }
+  .divider { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
+  .btn { padding: 7px 14px; border-radius: var(--radius-sm); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); }
+  .btn:hover { background: #1f242c; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.primary:hover { opacity: 0.92; }
+  .btn.ghost { background: transparent; color: var(--text-dim); }
+  .btn.sm { padding: 4px 10px; font-size: 12px; }
+
+  /* Report layout */
+  .export-bar { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
+  .preview-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-bottom: 12px; }
+  .report-printable {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 40px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  .report-header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    margin-bottom: 32px; border-bottom: 2px solid var(--border); padding-bottom: 24px;
+  }
+  .brand-name { font-size: 28px; font-weight: 700; color: var(--text); letter-spacing: 0.04em; }
+  .brand-tagline { font-size: 14px; color: var(--text-dim); margin-top: 4px; }
+  .report-meta { text-align: right; }
+  .report-meta .period { font-size: 13px; color: var(--text); font-weight: 600; }
+  .report-meta .compare { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+  .report-meta .generated { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+  .block-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-bottom: 14px; }
+  .report-block { margin-bottom: 28px; }
+
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 12px; }
+  @media (max-width: 700px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+  .rkpi {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px;
+    border-left: 3px solid;
+  }
+  .rkpi-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  .rkpi-value { font-size: 20px; font-weight: 700; line-height: 1.1; }
+  .rkpi-chg { display: inline-block; font-size: 11px; font-weight: 600; margin-top: 4px; }
+  .chg-up { color: var(--green); }
+  .chg-down { color: var(--red); }
+
+  /* Goal pace card */
+  .goal-card {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px;
+  }
+  .goal-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
+  .goal-actual { font-size: 22px; font-weight: 700; }
+  .goal-actual .of { font-size: 13px; color: var(--text-dim); font-weight: 500; margin-left: 8px; }
+  .goal-pace-pct { font-size: 18px; font-weight: 700; }
+  .goal-pace-pct.ahead { color: var(--green); }
+  .goal-pace-pct.behind { color: var(--red); }
+  .goal-bar-track { background: var(--bg); border-radius: 99px; height: 10px; overflow: hidden; }
+  .goal-bar-fill { height: 100%; border-radius: 99px; }
+  .goal-bar-fill.ahead { background: var(--green); }
+  .goal-bar-fill.behind { background: var(--accent); }
+  .goal-foot { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-dim); margin-top: 6px; }
+
+  /* Two-column tables */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
+  .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .data-table thead tr { border-bottom: 1px solid var(--border); }
+  .data-table th { text-align: left; padding: 6px 0; color: var(--text-dim); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .data-table th.r, .data-table td.r { text-align: right; }
+  .data-table tbody tr { border-bottom: 1px solid var(--border); }
+  .data-table tbody tr:last-child { border-bottom: none; }
+  .data-table td { padding: 6px 0; }
+
+  .report-footer {
+    border-top: 1px solid var(--border); padding-top: 16px;
+    font-size: 11px; color: var(--text-dim);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+
+  .empty { text-align: center; padding: 80px 20px; color: var(--text-dim); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+  .empty-icon { font-size: 36px; margin-bottom: 8px; }
+  .empty-title { font-size: 15px; margin-bottom: 4px; color: var(--text); }
+  .empty-sub { font-size: 13px; }
+  .loading { color: var(--text-dim); font-size: 14px; padding: 40px 0; text-align: center; }
+
+  /* Role modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  .modal-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; width: 380px; max-width: calc(100vw - 32px); }
+  .modal-title { font-size: 18px; font-weight: 700; margin: 0 0 6px 0; }
+  .modal-sub { font-size: 13px; color: var(--text-dim); margin: 0 0 20px 0; }
+  .modal-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .modal-option { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 13px 14px; border-radius: var(--radius-sm); font-family: inherit; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+  .modal-option:hover { background: #1f242c; border-color: #2f3540; }
+  .modal-option .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .modal-option .dot.coy { background: var(--coy); }
+  .modal-option .dot.designer { background: var(--designer); }
+  .modal-option .dot.admin { background: var(--admin); }
+  .modal-option .dot.employee { background: var(--employee); }
+  .pw-field { display: none; margin-top: 8px; }
+  .pw-field input { width: 100%; padding: 11px 12px; font-family: 'DM Sans', sans-serif; font-size: 14px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); outline: none; margin-bottom: 8px; }
+  .pw-field input:focus { border-color: var(--accent); }
+  .pw-error { display: none; font-size: 12px; color: var(--red); margin-bottom: 8px; }
+  .pw-row { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+
+<!-- Role modal -->
+
+<header id="app-header" style="display:none;">
+  <h1>Burlebo Analytics</h1>
+  <nav id="main-nav">
+    <span class="role-pill" id="role-pill"></span>
+  </nav>
+</header>
+
+<main id="app-main" class="hidden">
+  <div class="page-title">Big Picture Report</div>
+  <div class="page-sub">Printable consolidated report — revenue, profit, goal pace, top styles, FBA vs FBM split</div>
+
+  <div class="controls">
+    <span class="ctrl-label">Period:</span>
+    <input type="date" id="rpt-start" />
+    <span class="ctrl-label">to</span>
+    <input type="date" id="rpt-end" />
+    <span class="ctrl-label" style="margin-left:8px;">Compare:</span>
+    <input type="date" id="rpt-cstart" />
+    <span class="ctrl-label">to</span>
+    <input type="date" id="rpt-cend" />
+    <button class="btn primary" onclick="generateReport()">📊 Generate Report</button>
+    <div class="divider"></div>
+    <button class="btn sm" onclick="setReportQuick(7)">7D</button>
+    <button class="btn sm" onclick="setReportQuick(30)">30D</button>
+    <button class="btn sm" onclick="setReportQuick(90)">90D</button>
+  </div>
+
+  <div id="report-content">
+    <div class="empty"><div class="empty-icon">📄</div><div class="empty-title">Set a date range and click Generate Report</div></div>
+  </div>
+</main>
+
+<script>
+  // ============================================================================
+  // Shared nav loader
+  // ============================================================================
+  async function loadSharedNav() {
+    try {
+      const r = await fetch('/nav.html', { cache: 'no-cache' });
+      if (!r.ok) return;
+      const html = await r.text();
+      const nav = document.getElementById('main-nav');
+      const pill = document.getElementById('role-pill');
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const here = window.location.pathname.replace(/\/$/, '') || '/';
+      for (const a of tmp.querySelectorAll('a')) {
+        const href = a.getAttribute('href');
+        if (href === here || (href === '/' && here === '/')) a.classList.add('active');
+        nav.insertBefore(a, pill);
+      }
+    } catch (err) { console.error('Nav load failed:', err); }
+  }
+
+  // ============================================================================
+  // Supabase + auth
+  // ============================================================================
+  const SUPABASE_URL = 'https://uoetojuyzyngfopsmmxk.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvZXRvanV5enluZ2ZvcHNtbXhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzODY3ODIsImV4cCI6MjA5NDk2Mjc4Mn0.FVhs_0waTWIYkTVY2j4HERhlovggIFau07RuBu69M8E';
+  const sb = window.sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+
+  window.onAuthReady = async function (r) {
+    loadSharedNav();
+    await MP.init(sb);
+    MP.onChange(() => { _latestSalesDate = null; if (window._reportData) generateReport(); });
+    initDates();
+  };
+
+  // ============================================================================
+  // Helpers
+  // ============================================================================
+  function toISO(d) { return d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0'); }
+  function parseISO(s) {
+    if (!s) return null;
+    const parts = String(s).slice(0,10).split('-').map(n => parseInt(n,10));
+    if (parts.length !== 3 || parts.some(isNaN)) return null;
+    return new Date(Date.UTC(parts[0], parts[1]-1, parts[2]));
+  }
+  function addDays(d, n) { const x = new Date(d.getTime()); x.setUTCDate(x.getUTCDate()+n); return x; }
+  function daysBetween(a, b) { return Math.round((b.getTime() - a.getTime()) / 86400000); }
+  function daysInMonth(year, monthIdx) { return new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate(); }
+  function fmt(n)  { if (n==null) return '—'; return MP.money(Math.round(n), 0); }
+  function fmtN(n) { if (n==null) return '—'; return Math.round(n).toLocaleString(); }
+  function fmtP(n) { if (n==null) return '—'; return (n*100).toFixed(2)+'%'; }
+  function formatLongDate(iso) {
+    const d = parseISO(iso);
+    if (!d) return iso;
+    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  }
+
+  function pctChg(v1, v2) {
+    if (!v2 || v2 === 0) return null;
+    return (v1 - v2) / v2;
+  }
+  function fmtChg(v) {
+    if (v === null || v === undefined) return '';
+    const cls = v >= 0 ? 'chg-up' : 'chg-down';
+    const arrow = v >= 0 ? '▲' : '▼';
+    return `<span class="rkpi-chg ${cls}">${arrow} ${Math.abs(v * 100).toFixed(1)}%</span>`;
+  }
+
+  // ============================================================================
+  // Date anchoring
+  // ============================================================================
+  let _latestSalesDate = null;
+  async function getLatestSalesDate() {
+    if (_latestSalesDate) return _latestSalesDate;
+    const { data } = await sb.from('mp_sales_daily').select('date').in('marketplace', MP.codes()).order('date', { ascending: false }).limit(1);
+    if (data && data[0]) {
+      _latestSalesDate = (data[0].date instanceof Date) ? toISO(data[0].date) : String(data[0].date).slice(0,10);
+    }
+    return _latestSalesDate;
+  }
+
+  async function initDates() {
+    const latest = await getLatestSalesDate();
+    if (latest) {
+      const end = parseISO(latest);
+      const start = addDays(end, -29);
+      const cend  = addDays(end, -30);
+      const cstart = addDays(end, -59);
+      document.getElementById('rpt-start').value  = toISO(start);
+      document.getElementById('rpt-end').value    = toISO(end);
+      document.getElementById('rpt-cstart').value = toISO(cstart);
+      document.getElementById('rpt-cend').value   = toISO(cend);
+    }
+  }
+
+  async function setReportQuick(days) {
+    const latest = await getLatestSalesDate();
+    if (!latest) return;
+    const end = parseISO(latest);
+    const start = addDays(end, -(days - 1));
+    const cend  = addDays(start, -1);
+    const cstart = addDays(cend, -(days - 1));
+    document.getElementById('rpt-start').value  = toISO(start);
+    document.getElementById('rpt-end').value    = toISO(end);
+    document.getElementById('rpt-cstart').value = toISO(cstart);
+    document.getElementById('rpt-cend').value   = toISO(cend);
+    generateReport();
+  }
+
+  // ============================================================================
+  // Product groups + prefix matching
+  // ============================================================================
+  let _prefixMap = null;
+  async function loadPrefixMap() {
+    if (_prefixMap) return;
+    const { data } = await sb
+      .from('product_group_prefixes')
+      .select('prefix, product_groups(group_name, cogs, fbm_fee, fba_fee)');
+    const list = (data || []).map(p => ({
+      prefix: p.prefix.toUpperCase(),
+      group: p.product_groups?.group_name || 'Other',
+      cogs:    parseFloat(p.product_groups?.cogs || 0),
+      fbm_fee: parseFloat(p.product_groups?.fbm_fee || 0),
+      fba_fee: parseFloat(p.product_groups?.fba_fee || 0),
+    }));
+    list.sort((a, b) => b.prefix.length - a.prefix.length);
+    _prefixMap = list;
+  }
+  function matchPrefix(sku) {
+    const s = String(sku || '').toUpperCase();
+    for (const p of _prefixMap) {
+      if (s.startsWith(p.prefix)) return p;
+    }
+    return null;
+  }
+
+  // ============================================================================
+  // Style extraction (mirroring analytics.py)
+  // ============================================================================
+  function getStyle(sku) {
+    const s = String(sku || '').toUpperCase();
+    let clean = s;
+    if (clean.startsWith('FBA2-')) clean = clean.slice(5);
+    else if (clean.startsWith('FBA-')) clean = clean.slice(4);
+    // For one-size (BP-, C-, DB-), the style is the full clean string
+    if (['BP-', 'C-', 'DB-'].some(p => clean.startsWith(p))) return clean;
+    const idx = clean.lastIndexOf('-');
+    return idx !== -1 ? clean.slice(0, idx) : clean;
+  }
+
+  // ============================================================================
+  // ANALYTICS — slim port for report (units/revenue/fba_pct + top styles)
+  // ============================================================================
+  function calcAnalytics(salesRows, startStr, endStr) {
+    const start = parseISO(startStr);
+    const end = parseISO(endStr);
+
+    let units = 0, revenue = 0, fbaUnits = 0;
+    const styleAgg = new Map(); // style -> { units, revenue }
+
+    for (const r of salesRows) {
+      const dStr = (r.date instanceof Date) ? toISO(r.date) : String(r.date).slice(0,10);
+      const d = parseISO(dStr);
+      if (!d || d < start || d > end) continue;
+
+      const u = r.units || 0;
+      const rev = parseFloat(r.revenue || 0);
+      units += u;
+      revenue += rev;
+      if (r.is_fba) fbaUnits += u;
+
+      const style = getStyle(r.sku);
+      const e = styleAgg.get(style) || { units: 0, revenue: 0 };
+      e.units += u; e.revenue += rev;
+      styleAgg.set(style, e);
+    }
+
+    const topStyles = [...styleAgg.entries()]
+      .map(([style, v]) => ({ style, units: v.units, revenue: Math.round(v.revenue * 100) / 100 }))
+      .sort((a, b) => b.revenue - a.revenue);
+
+    return {
+      summary: {
+        units, revenue: Math.round(revenue * 100) / 100,
+        fba_pct: units > 0 ? fbaUnits / units : 0,
+      },
+      top_styles: topStyles,
+    };
+  }
+
+  // ============================================================================
+  // PROFIT — full port matching profit_calculator.py
+  // ============================================================================
+  const AMAZON_LEAKAGE_RATE = 0.08;
+  const AGENCY_FLAT_FEE_CAP = 5950;
+  const MONTH_NAMES = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+
+  function calculateAgencyFees(agencyConfig, start, end) {
+    if (!start || !end) return { flat: 0, variable: 0 };
+    const monthlyPayments = agencyConfig.monthly_payments || {};
+    let flat = 0, variable = 0;
+    for (const [monthName, amountRaw] of Object.entries(monthlyPayments)) {
+      if (!amountRaw) continue;
+      const amount = parseFloat(amountRaw);
+      if (isNaN(amount)) continue;
+      const monthIdx = MONTH_NAMES.indexOf(monthName.toLowerCase());
+      if (monthIdx === -1) continue;
+      for (let year = start.getUTCFullYear(); year <= end.getUTCFullYear(); year++) {
+        const monthStart = new Date(Date.UTC(year, monthIdx, 1));
+        const lastDay = daysInMonth(year, monthIdx);
+        const monthEnd = new Date(Date.UTC(year, monthIdx, lastDay));
+        const overlapStart = start > monthStart ? start : monthStart;
+        const overlapEnd   = end < monthEnd ? end : monthEnd;
+        if (overlapStart > overlapEnd) continue;
+        const overlapDays = Math.round((overlapEnd - overlapStart) / 86400000) + 1;
+        const prorate = overlapDays / lastDay;
+        flat     += Math.min(amount, AGENCY_FLAT_FEE_CAP) * prorate;
+        variable += Math.max(amount - AGENCY_FLAT_FEE_CAP, 0) * prorate;
+      }
+    }
+    return { flat, variable };
+  }
+
+  function calculateProfit(salesRows, adRows, creatorRows, agencyConfig, startStr, endStr) {
+    const start = parseISO(startStr);
+    const end = parseISO(endStr);
+
+    const productMap = new Map();
+    for (const r of salesRows) {
+      const dStr = (r.date instanceof Date) ? toISO(r.date) : String(r.date).slice(0,10);
+      const d = parseISO(dStr);
+      if (!d || d < start || d > end) continue;
+      const sku = String(r.sku || '').toUpperCase();
+      const p = matchPrefix(sku);
+      if (!p) continue;
+      let pm = productMap.get(p.prefix);
+      if (!pm) {
+        pm = { group: p.group, units: 0, revenue: 0, fees: 0, ad_spend: 0, agency_fees: 0, cogs_per_unit: p.cogs };
+        productMap.set(p.prefix, pm);
+      }
+      const fee = r.is_fba ? p.fba_fee : p.fbm_fee;
+      pm.units   += r.units || 0;
+      pm.revenue += parseFloat(r.revenue || 0);
+      pm.fees    += (r.units || 0) * fee;
+    }
+
+    let totalAdSpend = 0;
+    const unmatchedAd = new Map();
+    for (const a of adRows) {
+      const dStr = (a.date instanceof Date) ? toISO(a.date) : String(a.date).slice(0,10);
+      const d = parseISO(dStr);
+      if (!d || d < start || d > end) continue;
+      const spend = parseFloat(a.spend || 0);
+      totalAdSpend += spend;
+      const sku = String(a.sku || '').toUpperCase();
+      const p = matchPrefix(sku);
+      if (p && productMap.has(p.prefix)) productMap.get(p.prefix).ad_spend += spend;
+      else unmatchedAd.set(sku, (unmatchedAd.get(sku) || 0) + spend);
+    }
+    const unmatchedTotal = [...unmatchedAd.values()].reduce((s, v) => s + v, 0);
+    if (unmatchedTotal > 0 && productMap.size > 0) {
+      const spread = unmatchedTotal / productMap.size;
+      for (const pm of productMap.values()) pm.ad_spend += spread;
+    }
+
+    const agency = calculateAgencyFees(agencyConfig || {}, start, end);
+    const totalProductAd = [...productMap.values()].reduce((s, p) => s + p.ad_spend, 0);
+    const pc = productMap.size;
+    for (const pm of productMap.values()) {
+      const flatShare = pc > 0 ? agency.flat / pc : 0;
+      const varShare  = totalProductAd > 0
+        ? (agency.variable * pm.ad_spend / totalProductAd)
+        : (pc > 0 ? agency.variable / pc : 0);
+      pm.agency_fees = flatShare + varShare;
+    }
+
+    let creatorSpend = 0, creatorIncome = 0;
+    for (const cc of creatorRows) {
+      const d = parseISO(cc.date);
+      if (!d || d < start || d > end) continue;
+      creatorSpend  += parseFloat(cc.spend || 0);
+      creatorIncome += parseFloat(cc.income || 0);
+    }
+
+    let totalUnits = 0, totalRev = 0, totalCogs = 0, totalFees = 0, totalAds = 0, totalAgency = 0;
+    const rows = [];
+    for (const p of [...productMap.values()].sort((a, b) => b.revenue - a.revenue)) {
+      const cogsTotal = p.units * p.cogs_per_unit;
+      const leakage = p.revenue * AMAZON_LEAKAGE_RATE;
+      const net = p.revenue - cogsTotal - p.fees - p.ad_spend - p.agency_fees - leakage;
+      const margin = p.revenue ? net / p.revenue : 0;
+      rows.push({
+        group: p.group, units: p.units,
+        revenue: Math.round(p.revenue * 100) / 100,
+        cogs: Math.round(cogsTotal * 100) / 100,
+        amazon_fees: Math.round(p.fees * 100) / 100,
+        ad_spend: Math.round(p.ad_spend * 100) / 100,
+        net_profit: Math.round(net * 100) / 100,
+        margin: Math.round(margin * 10000) / 10000,
+      });
+      totalUnits += p.units; totalRev += p.revenue; totalCogs += cogsTotal;
+      totalFees += p.fees; totalAds += p.ad_spend; totalAgency += p.agency_fees;
+    }
+    rows.sort((a, b) => b.net_profit - a.net_profit);
+
+    // Creator spend/income are informational only — they do NOT affect revenue or profit.
+    // Creator income is already included in sales_daily revenue (it's an attribution bucket, not additional revenue).
+    const grandRev = totalRev;
+    const totalLeakage = grandRev * AMAZON_LEAKAGE_RATE;
+    const grandProfit = grandRev - totalCogs - totalFees - totalAds - totalAgency - totalLeakage;
+    const grandMargin = grandRev ? grandProfit / grandRev : 0;
+    const tacos = grandRev ? totalAds / grandRev : 0;
+
+    return {
+      summary: {
+        units: totalUnits,
+        revenue: Math.round(grandRev * 100) / 100,
+        cogs: Math.round(totalCogs * 100) / 100,
+        amazon_fees: Math.round(totalFees * 100) / 100,
+        ad_spend: Math.round(totalAds * 100) / 100,
+        agency_fees: Math.round(totalAgency * 100) / 100,
+        amazon_leakage: Math.round(totalLeakage * 100) / 100,
+        net_profit: Math.round(grandProfit * 100) / 100,
+        margin: Math.round(grandMargin * 10000) / 10000,
+        tacos: Math.round(tacos * 10000) / 10000,
+      },
+      rows,
+    };
+  }
+
+  // ============================================================================
+  // GOAL — port of goal_tracker.py
+  // ============================================================================
+  function calculateGoal(allGoalSales, latestISO, target, goalStartStr, goalEndStr) {
+    let totalActual = 0;
+    for (const r of allGoalSales) totalActual += parseFloat(r.revenue || 0);
+    const goalStart = parseISO(goalStartStr);
+    const goalEnd = parseISO(goalEndStr);
+    const latestDate = parseISO(latestISO);
+    const totalDays = goalStart && goalEnd ? daysBetween(goalStart, goalEnd) + 1 : 365;
+    const dailyReq = target / totalDays;
+    const daysElapsed = goalStart && latestDate ? Math.max(0, daysBetween(goalStart, latestDate) + 1) : 0;
+    const requiredToDate = dailyReq * daysElapsed;
+    const paceDiff = requiredToDate > 0 ? (totalActual - requiredToDate) / requiredToDate : 0;
+
+    return {
+      goal: target,
+      total_actual: Math.round(totalActual * 100) / 100,
+      pace_diff: paceDiff,
+      daily_required: Math.round(dailyReq * 100) / 100,
+      pct_of_goal: target > 0 ? totalActual / target : 0,
+      start_date: goalStartStr,
+      end_date: goalEndStr,
+    };
+  }
+
+  // ============================================================================
+  // Data load
+  // ============================================================================
+  async function fetchPaged(table, columns, filters = []) {
+    const all = [];
+    let from = 0;
+    const page = 1000;
+    while (true) {
+      let q = sb.from(table).select(columns);
+      for (const [k, op, v] of filters) q = q[op](k, v);
+      q = q.order('id', { ascending: true }).range(from, from + page - 1);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      if (!data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < page) break;
+      from += page;
+    }
+    return all;
+  }
+
+  // Profit summary in the shape this report expects, from the shared engine.
+  async function engineProfit(codes, s, e) {
+    const results = [];
+    for (const c of codes) results.push(await ProfitEngine.computeMarket(c, s, e));
+    const lines = results.flatMap(r => r.skus);
+    const t = ProfitEngine.sumLines(lines);
+    const overhead = results.reduce((a, r) => a + r.overhead.reduce((b, o) => b + o.amount, 0), 0);
+    const adTotal = results.reduce((a, r) => a + r.adTotal, 0);
+    const net = t.profit - overhead;
+    const groups = new Map();
+    for (const x of lines) { if (!groups.has(x.group)) groups.set(x.group, []); groups.get(x.group).push(x); }
+    const rows = [...groups.entries()].map(([g, ls]) => { const v = ProfitEngine.sumLines(ls); return { group: g, units: v.units, revenue: v.revenue, net_profit: v.profit, margin: v.revenue ? v.profit / v.revenue : 0 }; })
+      .sort((a, b) => b.net_profit - a.net_profit);
+    return {
+      summary: { units: t.units, revenue: t.revenue, cogs: t.cogs, amazon_fees: t.fees - t.reimb, ad_spend: adTotal,
+                 agency_fees: overhead, amazon_leakage: t.leakage, net_profit: net,
+                 margin: t.revenue ? net / t.revenue : 0, tacos: t.revenue ? adTotal / t.revenue : 0 },
+      rows, modes: results.map(r => r.mode),
+    };
+  }
+
+  async function generateReport() {
+    const start = document.getElementById('rpt-start').value;
+    const end   = document.getElementById('rpt-end').value;
+    const cstart = document.getElementById('rpt-cstart').value;
+    const cend   = document.getElementById('rpt-cend').value;
+    const hasCompare = !!(cstart && cend);
+
+    if (!start || !end) {
+      document.getElementById('report-content').innerHTML = '<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Pick a start and end date</div></div>';
+      return;
+    }
+
+    document.getElementById('report-content').innerHTML = '<div class="loading">Generating report — pulling sales, ads, profit, and goal data…</div>';
+
+    try {
+      await loadPrefixMap();
+      const latestISO = await getLatestSalesDate();
+
+      // Date range to fetch: include compare period if present
+      const fetchStart = hasCompare && cstart < start ? cstart : start;
+      const fetchEnd   = hasCompare && cend > end ? cend : end;
+
+      const codes = MP.codes();
+      const ccy = MP.displayCurrency();
+      await MP.loadFx(fetchStart, fetchEnd);
+
+      // Sales (Business Report, order dates) for units, top styles, FBA/FBM.
+      const salesAll = (await fetchPaged('mp_sales_daily', 'date, sku, is_fba, units, revenue, currency',
+          [['marketplace', 'in', codes], ['date', 'gte', fetchStart], ['date', 'lte', fetchEnd]]))
+        .map(r => ({ ...r, revenue: MP.toDisplay(Number(r.revenue) || 0, r.currency, r.date) }));
+      const analyticsRange1 = calcAnalytics(salesAll, start, end);
+      const analyticsRange2 = hasCompare ? calcAnalytics(salesAll, cstart, cend) : null;
+
+      // Profit: the same calculation as the Profit page (actual fees where
+      // transaction reports cover the range, estimates otherwise).
+      await ProfitEngine.loadGroups();
+      const profitRange1 = await engineProfit(codes, start, end);
+      const profitRange2 = hasCompare ? await engineProfit(codes, cstart, cend) : null;
+
+      // Goal: the same seasonal pace as Analytics.
+      const pace = await Pace.forMarkets(codes);
+      const gs = Pace.summary(pace, codes);
+      const today = toISO(new Date());
+      const cv = v => MP.convert(v, 'USD', ccy, today);
+      const goal = gs ? { goal: cv(gs.goal), total_actual: cv(gs.actual), pace_diff: gs.paceDiff, pct_of_goal: gs.pct, daily_required: cv(gs.dailyRequired), year: gs.end.slice(0, 4) } : null;
+
+      const reportData = {
+        period: { start, end },
+        compare: hasCompare ? { start: cstart, end: cend } : null,
+        analytics: { range1: analyticsRange1, range2: analyticsRange2 },
+        profit: profitRange1,
+        profit_compare: profitRange2,
+        goal,
+      };
+
+      window._reportData = reportData;
+      renderReport(reportData);
+    } catch (err) {
+      document.getElementById('report-content').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error</div><div class="empty-sub">${err.message}</div></div>`;
+    }
+  }
+
+  // ============================================================================
+  // Render report
+  // ============================================================================
+  function rptKpi(label, value, chgHtml, borderColor) {
+    return `<div class="rkpi" style="border-left-color:${borderColor};">
+      <div class="rkpi-label">${label}</div>
+      <div class="rkpi-value">${value}</div>
+      ${chgHtml || ''}
+    </div>`;
+  }
+
+  function buildFbaFbmSVG(range1, range2, periodLabel, compareLabel) {
+    const s1 = range1.summary;
+    const fba1 = Math.round(s1.revenue * s1.fba_pct);
+    const fbm1 = Math.round(s1.revenue * (1 - s1.fba_pct));
+    const fba1pct = s1.fba_pct;
+
+    const W = 820, padL = 180, padR = 160, padT = 20, padB = 20;
+    const barH = 36, gap = 24;
+    const plotW = W - padL - padR;
+
+    const datasets = (range2 && compareLabel)
+      ? [
+          { label: periodLabel,  fba: fba1, fbm: fbm1, fbaPct: fba1pct },
+          { label: compareLabel, fba: Math.round(range2.summary.revenue * range2.summary.fba_pct), fbm: Math.round(range2.summary.revenue * (1 - range2.summary.fba_pct)), fbaPct: range2.summary.fba_pct },
+        ]
+      : [{ label: periodLabel, fba: fba1, fbm: fbm1, fbaPct: fba1pct }];
+
+    const totalH = datasets.length * (barH + gap) + padT + padB;
+
+    let bars = '';
+    datasets.forEach((ds, i) => {
+      const total = ds.fba + ds.fbm || 1;
+      const fbaW = (ds.fba / total) * plotW;
+      const fbmW = (ds.fbm / total) * plotW;
+      const yy = padT + i * (barH + gap);
+      const lbl = ds.label.length > 22 ? ds.label.slice(0, 22) + '…' : ds.label;
+      bars += `<text x="${padL - 10}" y="${yy + barH/2 + 4}" text-anchor="end" font-size="11" fill="#8a92a0">${lbl}</text>`;
+      bars += `<rect x="${padL}" y="${yy}" width="${fbaW.toFixed(1)}" height="${barH}" rx="4" fill="#3b82f6"/>`;
+      if (fbaW > 50) bars += `<text x="${(padL + fbaW/2).toFixed(1)}" y="${yy + barH/2 + 5}" text-anchor="middle" font-size="11" font-weight="600" fill="white">FBA ${(ds.fbaPct*100).toFixed(0)}%</text>`;
+      bars += `<rect x="${(padL + fbaW).toFixed(1)}" y="${yy}" width="${fbmW.toFixed(1)}" height="${barH}" rx="4" fill="#ff6b35"/>`;
+      if (fbmW > 50) bars += `<text x="${(padL + fbaW + fbmW/2).toFixed(1)}" y="${yy + barH/2 + 5}" text-anchor="middle" font-size="11" font-weight="600" fill="white">FBM ${((1-ds.fbaPct)*100).toFixed(0)}%</text>`;
+      bars += `<text x="${padL + plotW + 10}" y="${yy + barH/2 - 4}" font-size="10" fill="#8a92a0">FBA $${ds.fba.toLocaleString()}</text>`;
+      bars += `<text x="${padL + plotW + 10}" y="${yy + barH/2 + 10}" font-size="10" fill="#8a92a0">FBM $${ds.fbm.toLocaleString()}</text>`;
+    });
+
+    const legendY = totalH - 8;
+    const legend = `<rect x="${padL}" y="${legendY - 10}" width="12" height="12" rx="2" fill="#3b82f6"/>
+      <text x="${padL + 16}" y="${legendY}" font-size="11" fill="#8a92a0">FBA (Amazon Fulfilled)</text>
+      <rect x="${padL + 160}" y="${legendY - 10}" width="12" height="12" rx="2" fill="#ff6b35"/>
+      <text x="${padL + 176}" y="${legendY}" font-size="11" fill="#8a92a0">FBM (Self Fulfilled)</text>`;
+
+    return `<svg viewBox="0 0 ${W} ${totalH + 24}" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:8px;background:#0d0f12;">
+      ${bars}${legend}
+    </svg>`;
+  }
+
+  function renderReport(d) {
+    const p = d.profit;
+    const pc = d.profit_compare;
+    const a = d.analytics.range1;
+    const ac = d.analytics.range2;
+    const g = d.goal;
+    const ps = p.summary;
+
+    const periodLabel = `${formatLongDate(d.period.start)} → ${formatLongDate(d.period.end)}`;
+    const compareLabel = d.compare ? `${formatLongDate(d.compare.start)} → ${formatLongDate(d.compare.end)}` : null;
+
+    const revenueChg = pc ? pctChg(ps.revenue, pc.summary.revenue) : null;
+    const profitChg  = pc ? pctChg(ps.net_profit, pc.summary.net_profit) : null;
+    const unitsChg   = ac ? pctChg(a.summary.units, ac.summary.units) : null;
+    const adsChg     = pc ? pctChg(ps.ad_spend, pc.summary.ad_spend) : null;
+
+    const ahead = g ? g.pace_diff >= 0 : true;
+    const goalPct = g ? Math.min(100, g.pct_of_goal * 100) : 0;
+
+    let html = '';
+
+    // Export bar
+    html += `<div class="export-bar">
+      <button class="btn primary" id="export-png-btn" onclick="exportReportPNG()">📸 Export as Image</button>
+      <button class="btn" id="copy-email-btn" onclick="copyReportEmail()">📧 Copy Email Summary</button>
+    </div>`;
+
+    html += '<div class="preview-label">📋 Report Preview</div>';
+
+    // Printable container
+    html += '<div class="report-printable" id="report-printable">';
+
+    // Header
+    html += `<div class="report-header">
+      <div>
+        <div class="brand-name">BURLEBO</div>
+        <div class="brand-tagline">Amazon Performance Report · ${MP.isAll() ? '🌎 All marketplaces' : MP.market(MP.current()).flag + ' ' + MP.market(MP.current()).name} · ${MP.displayCurrency()}</div>
+      </div>
+      <div class="report-meta">
+        <div class="period">Period: ${periodLabel}</div>
+        ${compareLabel ? `<div class="compare">vs ${compareLabel}</div>` : ''}
+        <div class="generated">Generated ${new Date().toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' })}</div>
+      </div>
+    </div>`;
+
+    // Key Metrics (2 rows of 4)
+    html += '<div class="report-block">';
+    html += '<div class="block-label">Key Metrics</div>';
+    html += '<div class="kpi-grid">';
+    html += rptKpi('Revenue',     fmt(ps.revenue),    fmtChg(revenueChg), '#ff6b35');
+    html += rptKpi('Net Profit',  fmt(ps.net_profit), fmtChg(profitChg),  ps.net_profit >= 0 ? '#4ade80' : '#f87171');
+    html += rptKpi('Margin',      fmtP(ps.margin),    '',                 '#38bdf8');
+    html += rptKpi('Units Sold',  fmtN(a.summary.units), fmtChg(unitsChg), '#a78bfa');
+    html += '</div>';
+    html += '<div class="kpi-grid" style="margin-top:12px;">';
+    html += rptKpi('Ad Spend',    fmt(ps.ad_spend),     fmtChg(adsChg), '#fbbf24');
+    html += rptKpi('TACOS',       fmtP(ps.tacos),       '',             '#ec4899');
+    html += rptKpi('Amazon Fees', fmt(ps.amazon_fees),  '',             '#06b6d4');
+    html += rptKpi('COGS',        fmt(ps.cogs),         '',             '#64748b');
+    html += '</div></div>';
+
+    if (g) {
+    // Goal Pace
+    html += `<div class="report-block">
+      <div class="block-label">${MP.money(g.goal / 1000000, 1)}M Revenue Goal — ${g.year}${MP.isAll() ? ' (all marketplaces)' : ''}</div>
+      <div class="goal-card">
+        <div class="goal-row">
+          <div class="goal-actual">${fmt(g.total_actual)}<span class="of">of ${fmt(g.goal)}</span></div>
+          <div class="goal-pace-pct ${ahead ? 'ahead' : 'behind'}">${ahead ? '▲' : '▼'} ${Math.abs(g.pace_diff * 100).toFixed(1)}% vs pace</div>
+        </div>
+        <div class="goal-bar-track"><div class="goal-bar-fill ${ahead ? 'ahead' : 'behind'}" style="width:${goalPct.toFixed(1)}%"></div></div>
+        <div class="goal-foot">
+          <span>${goalPct.toFixed(1)}% complete</span>
+          <span>Need ${fmt(g.daily_required)}/day remaining</span>
+        </div>
+      </div>
+    </div>`;
+
+    }
+
+    // Two-column: Top Styles + Product Groups
+    html += '<div class="report-block"><div class="two-col">';
+
+    // Top Styles
+    html += `<div>
+      <div class="block-label">Top Styles — ${formatLongDate(d.period.start)} → ${formatLongDate(d.period.end)}</div>
+      <table class="data-table"><thead><tr>
+        <th>Style</th><th class="r">Units</th><th class="r">Revenue</th>
+      </tr></thead><tbody>`;
+    for (const r of a.top_styles.slice(0, 10)) {
+      html += `<tr><td>${r.style}</td><td class="r">${fmtN(r.units)}</td><td class="r">${fmt(r.revenue)}</td></tr>`;
+    }
+    html += '</tbody></table></div>';
+
+    // Product Groups
+    html += `<div>
+      <div class="block-label">By Product Group</div>
+      <table class="data-table"><thead><tr>
+        <th>Group</th><th class="r">Revenue</th><th class="r">Margin</th>
+      </tr></thead><tbody>`;
+    for (const r of p.rows.slice(0, 10)) {
+      const mc = r.margin >= 0.4 ? '#4ade80' : r.margin >= 0.2 ? '#ff6b35' : '#f87171';
+      html += `<tr><td>${r.group}</td><td class="r">${fmt(r.revenue)}</td><td class="r" style="color:${mc};">${fmtP(r.margin)}</td></tr>`;
+    }
+    html += '</tbody></table></div>';
+
+    html += '</div></div>';
+
+    // Period comparison (if compare provided)
+    if (compareLabel && pc) {
+      html += `<div class="report-block">
+        <div class="block-label">Period Comparison</div>
+        <table class="data-table"><thead><tr>
+          <th>Metric</th>
+          <th class="r">${periodLabel}</th>
+          <th class="r">${compareLabel}</th>
+          <th class="r">Change</th>
+        </tr></thead><tbody>`;
+
+      const rows = [
+        ['Revenue',     fmt(ps.revenue),       fmt(pc.summary.revenue),    pctChg(ps.revenue, pc.summary.revenue)],
+        ['Units',       fmtN(a.summary.units), fmtN(ac ? ac.summary.units : 0), ac ? pctChg(a.summary.units, ac.summary.units) : null],
+        ['Net Profit',  fmt(ps.net_profit),    fmt(pc.summary.net_profit), pctChg(ps.net_profit, pc.summary.net_profit)],
+        ['Margin',      fmtP(ps.margin),       fmtP(pc.summary.margin),    null],
+        ['Ad Spend',    fmt(ps.ad_spend),      fmt(pc.summary.ad_spend),   pctChg(ps.ad_spend, pc.summary.ad_spend)],
+        ['TACOS',       fmtP(ps.tacos),        fmtP(pc.summary.tacos),     null],
+      ];
+      for (const [label, v1, v2, chg] of rows) {
+        const chgHtml = (chg !== null && chg !== undefined)
+          ? `<span class="${chg >= 0 ? 'chg-up' : 'chg-down'}">${chg >= 0 ? '▲' : '▼'} ${Math.abs(chg * 100).toFixed(1)}%</span>`
+          : '—';
+        html += `<tr><td>${label}</td><td class="r" style="font-weight:600;">${v1}</td><td class="r" style="color:var(--text-dim);">${v2}</td><td class="r">${chgHtml}</td></tr>`;
+      }
+      html += '</tbody></table></div>';
+    }
+
+    // FBA vs FBM split chart
+    html += `<div class="report-block">
+      <div class="block-label">FBA vs FBM Split</div>
+      ${buildFbaFbmSVG(a, ac, periodLabel, compareLabel)}
+    </div>`;
+
+    // Footer
+    html += `<div class="report-footer">
+      <span>BURLEBO Amazon Dashboard — Confidential</span>
+      <span>Generated ${new Date().toLocaleString()}</span>
+    </div>`;
+
+    html += '</div>'; // close report-printable
+
+    document.getElementById('report-content').innerHTML = html;
+  }
+
+  // ============================================================================
+  // Export PNG (via html2canvas — lazy loaded)
+  // ============================================================================
+  function exportReportPNG() {
+    const btn = document.getElementById('export-png-btn');
+    const orig = btn.textContent;
+    btn.textContent = '⏳ Generating...';
+    btn.disabled = true;
+
+    function doCapture() {
+      const el = document.getElementById('report-printable');
+      window.html2canvas(el, {
+        backgroundColor: '#0d0f12',
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        scrollY: 0,
+        windowWidth: el.scrollWidth,
+        height: el.scrollHeight,
+      }).then(canvas => {
+        canvas.toBlob(blob => {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'Burlebo_Report_' + new Date().toISOString().split('T')[0] + '.png';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          btn.textContent = '✓ Saved!';
+          btn.disabled = false;
+          setTimeout(() => { btn.textContent = orig; }, 3000);
+        }, 'image/png');
+      }).catch(err => {
+        btn.textContent = orig;
+        btn.disabled = false;
+        alert('Export failed: ' + err.message);
+      });
+    }
+
+    if (window.html2canvas) doCapture();
+    else {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      s.onload = doCapture;
+      s.onerror = () => { btn.textContent = orig; btn.disabled = false; alert('Could not load export library — check internet.'); };
+      document.head.appendChild(s);
+    }
+  }
+
+  // ============================================================================
+  // Copy Email Summary (plaintext)
+  // ============================================================================
+  async function copyReportEmail() {
+    const d = window._reportData;
+    if (!d) return;
+    const ps = d.profit.summary;
+    const pc = d.profit_compare;
+    const a  = d.analytics.range1;
+    const ac = d.analytics.range2;
+    const g  = d.goal;
+    const ahead = g ? g.pace_diff >= 0 : true;
+    const goalText = g ? `${MP.money(g.goal / 1000000, 1)}M GOAL PACE
+Progress:    ${fmt(g.total_actual)} / ${fmt(g.goal)} (${(g.pct_of_goal*100).toFixed(1)}%)
+Pace:        ${ahead ? '▲' : '▼'} ${Math.abs(g.pace_diff*100).toFixed(1)}% ${ahead ? 'ahead' : 'behind'}
+Need/Day:    ${fmt(g.daily_required)}
+
+` : '';
+    const periodLabel = `${d.period.start} → ${d.period.end}`;
+    const compareLabel = d.compare ? `${d.compare.start} → ${d.compare.end}` : null;
+    const chg = (v1, v2) => v2 > 0 ? ` (${v1 >= v2 ? '+' : ''}${((v1-v2)/v2*100).toFixed(1)}%)` : '';
+
+    const pad = (s, n) => {
+      const str = String(s);
+      if (str.length >= n) return str;
+      return str + ' '.repeat(n - str.length);
+    };
+    const padL = (s, n) => {
+      const str = String(s);
+      if (str.length >= n) return str;
+      return ' '.repeat(n - str.length) + str;
+    };
+
+    const text = `BURLEBO AMAZON REPORT — ${MP.isAll() ? 'ALL MARKETPLACES' : MP.market(MP.current()).name.toUpperCase()} (${MP.displayCurrency()}) — ${periodLabel}${compareLabel ? '\nvs ' + compareLabel : ''}
+
+REVENUE & PROFIT
+Revenue:     ${fmt(ps.revenue)}${pc ? chg(ps.revenue, pc.summary.revenue) : ''}
+Net Profit:  ${fmt(ps.net_profit)}${pc ? chg(ps.net_profit, pc.summary.net_profit) : ''}
+Margin:      ${fmtP(ps.margin)}
+Units Sold:  ${fmtN(a.summary.units)}${ac ? chg(a.summary.units, ac.summary.units) : ''}
+Ad Spend:    ${fmt(ps.ad_spend)}
+TACOS:       ${fmtP(ps.tacos)}
+
+${goalText}TOP 5 STYLES
+${a.top_styles.slice(0,5).map(r => `${pad(r.style, 20)} ${padL(fmtN(r.units), 5)} units   ${fmt(r.revenue)}`).join('\n')}
+
+TOP PRODUCT GROUPS
+${d.profit.rows.slice(0,5).map(r => `${pad(r.group, 25)} ${padL(fmt(r.revenue), 10)}   Margin: ${fmtP(r.margin)}`).join('\n')}
+
+Generated by BURLEBO Amazon Dashboard`;
+
+    const btn = document.getElementById('copy-email-btn');
+    const orig = btn.textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      btn.textContent = '✓ Copied!';
+      setTimeout(() => btn.textContent = orig, 2000);
+    } catch (e) {
+      // Fallback: select a temporary textarea
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); btn.textContent = '✓ Copied!'; setTimeout(() => btn.textContent = orig, 2000); }
+      catch (e2) { alert('Could not copy. Here is the summary:\n\n' + text); }
+      document.body.removeChild(ta);
+    }
+  }
+</script>
+
+</body>
+</html>
