@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ad Performance — Burlebo Analytics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/auth.js"></script>
+<script src="/global/marketplace.js"></script>
+<style>
+  :root {
+    --bg: #0d0f12; --panel: #14171c; --panel-2: #1a1e25;
+    --border: #252a33; --text: #e8eaed; --text-dim: #8a92a0;
+    --accent: #ff6b35; --green: #4ade80; --red: #f87171; --yellow: #fbbf24; --blue: #38bdf8; --purple: #a78bfa; --gold: #fbbf24;
+    --radius: 10px; --radius-sm: 6px;
+    --coy: #ff6b35;      --coy-bg: rgba(255, 107, 53, 0.15);
+    --designer: #a78bfa; --designer-bg: rgba(167, 139, 250, 0.15);
+    --admin: #4ade80;    --admin-bg: rgba(74, 222, 128, 0.15);
+    --employee: #38bdf8; --employee-bg: rgba(56, 189, 248, 0.15);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'DM Sans', system-ui, sans-serif; }
+  header { border-bottom: 1px solid var(--border); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; background: var(--panel); }
+  header h1 { font-size: 18px; font-weight: 700; margin: 0; }
+  header nav { display: flex; gap: 18px; align-items: center; }
+  header nav a { color: var(--text-dim); text-decoration: none; font-size: 14px; font-weight: 500; }
+  header nav a:hover { color: var(--text); }
+  header nav a.active { color: var(--accent); }
+  .role-pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .role-pill:hover { opacity: 0.85; }
+  .role-pill.coy { background: var(--coy-bg); color: var(--coy); }
+  .role-pill.designer { background: var(--designer-bg); color: var(--designer); }
+  .role-pill.admin { background: var(--admin-bg); color: var(--admin); }
+  .role-pill.employee { background: var(--employee-bg); color: var(--employee); }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 28px 32px; }
+  main.hidden { display: none; }
+  .page-title { font-size: 28px; font-weight: 700; margin: 0 0 4px 0; }
+  .page-sub { font-size: 14px; color: var(--text-dim); margin: 0 0 24px 0; }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    padding: 16px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 20px;
+  }
+  .ctrl-label { font-size: 12px; color: var(--text-dim); font-weight: 500; }
+  .controls input[type=date], .controls input[type=text], .controls select {
+    padding: 7px 10px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-family: inherit; font-size: 13px; color-scheme: dark;
+  }
+  .controls input[type=date] { width: 145px; }
+  .controls input[type=text] { width: 200px; }
+  .controls select { cursor: pointer; }
+  .controls input:focus, .controls select:focus { border-color: var(--accent); outline: none; }
+  .divider { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
+  .btn { padding: 7px 14px; border-radius: var(--radius-sm); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); }
+  .btn:hover { background: #1f242c; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.primary:hover { opacity: 0.92; }
+  .btn.sm { padding: 4px 10px; font-size: 12px; }
+  .btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.ghost { background: transparent; color: var(--text-dim); }
+  .btn.ghost:hover { color: var(--text); }
+
+  /* KPI strip */
+  .kpi-row {
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 20px;
+  }
+  @media (max-width: 1100px) { .kpi-row { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 600px) { .kpi-row { grid-template-columns: repeat(2, 1fr); } }
+  .mini-kpi {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px; position: relative; overflow: hidden;
+  }
+  .mini-kpi::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  }
+  .mini-kpi.gold::before   { background: var(--gold); }
+  .mini-kpi.green::before  { background: var(--green); }
+  .mini-kpi.orange::before { background: var(--accent); }
+  .mini-kpi.purple::before { background: var(--purple); }
+  .mini-kpi.blue::before   { background: var(--blue); }
+  .mini-kpi.red::before    { background: var(--red); }
+  .mini-kpi-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 5px; }
+  .mini-kpi-value { font-size: 18px; font-weight: 700; line-height: 1.1; }
+
+  /* Section header */
+  .section-hdr { display: flex; align-items: baseline; justify-content: space-between; margin: 8px 0 12px; gap: 12px; flex-wrap: wrap; }
+  .section-title { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
+  .section-sub { font-size: 12px; color: var(--text-dim); }
+
+  /* Tables */
+  .table-wrap {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead tr { background: var(--panel-2); }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-dim); font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; cursor: pointer; user-select: none; white-space: nowrap; }
+  th:hover { color: var(--text); }
+  td.r, th.r { text-align: right; }
+  td.mono { font-family: 'SF Mono', Menlo, monospace; font-size: 12px; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+  /* Badge — used for TACOS color coding */
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600;
+  }
+  .badge.green  { background: rgba(74, 222, 128, 0.15);  color: var(--green); }
+  .badge.orange { background: rgba(255, 107, 53, 0.15);  color: var(--accent); }
+  .badge.red    { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+  .badge.muted  { background: var(--panel-2);            color: var(--text-dim); }
+
+  .empty { text-align: center; padding: 80px 20px; color: var(--text-dim); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+  .empty-icon { font-size: 36px; margin-bottom: 8px; }
+  .empty-title { font-size: 15px; margin-bottom: 4px; color: var(--text); }
+  .empty-sub { font-size: 13px; }
+  .loading { color: var(--text-dim); font-size: 14px; padding: 40px 0; text-align: center; }
+
+  /* Modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  .modal-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; width: 380px; max-width: calc(100vw - 32px); }
+  .modal-title { font-size: 18px; font-weight: 700; margin: 0 0 6px 0; }
+  .modal-sub { font-size: 13px; color: var(--text-dim); margin: 0 0 20px 0; }
+  .modal-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .modal-option { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 13px 14px; border-radius: var(--radius-sm); font-family: inherit; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+  .modal-option:hover { background: #1f242c; border-color: #2f3540; }
+  .modal-option .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .modal-option .dot.coy { background: var(--coy); }
+  .modal-option .dot.designer { background: var(--designer); }
+  .modal-option .dot.admin { background: var(--admin); }
+  .modal-option .dot.employee { background: var(--employee); }
+  .pw-field { display: none; margin-top: 8px; }
+  .pw-field input { width: 100%; padding: 11px 12px; font-family: 'DM Sans', sans-serif; font-size: 14px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); outline: none; margin-bottom: 8px; }
+  .pw-field input:focus { border-color: var(--accent); }
+  .pw-error { display: none; font-size: 12px; color: var(--red); margin-bottom: 8px; }
+  .pw-row { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+
+<!-- Role modal -->
+
+<header id="app-header" style="display:none;">
+  <h1>Burlebo Analytics</h1>
+  <nav id="main-nav">
+    <span class="role-pill" id="role-pill"></span>
+  </nav>
+</header>
+
+<main id="app-main" class="hidden">
+  <div class="page-title">Ad Performance <span id="mp-badge"></span></div>
+  <div class="page-sub">Amazon ad spend, ROAS, TACOS, and ACOS by SKU, style, or product group</div>
+
+  <div class="controls">
+    <span class="ctrl-label">Range:</span>
+    <input type="date" id="ad-start" />
+    <span class="ctrl-label">to</span>
+    <input type="date" id="ad-end" />
+    <button class="btn primary" onclick="loadAds()">Run</button>
+    <div class="divider"></div>
+    <button class="btn sm" onclick="setQuickRange(1)">1D</button>
+    <button class="btn sm" onclick="setQuickRange(7)">7D</button>
+    <button class="btn sm" onclick="setQuickRange(30)">30D</button>
+    <button class="btn sm" onclick="setQuickRange(90)">90D</button>
+    <div class="divider"></div>
+    <select id="ad-view-select" onchange="renderAds()">
+      <option value="style">By Style</option>
+      <option value="group">By Product Group</option>
+      <option value="sku">By SKU</option>
+    </select>
+    <input type="text" id="ad-search" placeholder="Filter SKU / Style..." oninput="renderAds()" />
+  </div>
+
+  <div id="ads-content">
+    <div class="empty"><div class="empty-icon">📣</div><div class="empty-title">Select a date range and click Run</div></div>
+  </div>
+</main>
+
+<script>
+  // ============================================================================
+  // Setup + auth
+  // ============================================================================
+  // ============================================================================
+  // Shared nav loader — pulls /nav.html and injects + highlights active link
+  // ============================================================================
+  async function loadSharedNav() {
+    try {
+      const r = await fetch('/nav.html', { cache: 'no-cache' });
+      if (!r.ok) return;
+      const html = await r.text();
+      const nav = document.getElementById('main-nav');
+      const pill = document.getElementById('role-pill');
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const here = window.location.pathname.replace(/\/$/, '') || '/';
+      for (const a of tmp.querySelectorAll('a')) {
+        const href = a.getAttribute('href');
+        if (href === here || (href === '/' && here === '/')) a.classList.add('active');
+        nav.insertBefore(a, pill);
+      }
+    } catch (err) {
+      console.error('Nav load failed:', err);
+    }
+  }
+
+  const SUPABASE_URL = 'https://uoetojuyzyngfopsmmxk.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvZXRvanV5enluZ2ZvcHNtbXhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzODY3ODIsImV4cCI6MjA5NDk2Mjc4Mn0.FVhs_0waTWIYkTVY2j4HERhlovggIFau07RuBu69M8E';
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+
+  window.onAuthReady = async function (r) {
+    loadSharedNav();
+    await MP.init(sb);
+    document.getElementById('mp-badge').innerHTML = MP.badgeHtml();
+    MP.onChange(async () => {
+      document.getElementById('mp-badge').innerHTML = MP.badgeHtml();
+      _latestAdDate = null;
+      if (window._adData) loadAds(); else initDates();
+    });
+    initDates();
+  };
+
+  // ============================================================================
+  // Date / format helpers
+  // ============================================================================
+  function toISO(d) { return d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0'); }
+  function parseISO(s) {
+    if (!s) return null;
+    const parts = String(s).slice(0,10).split('-').map(n => parseInt(n,10));
+    if (parts.length !== 3 || parts.some(isNaN)) return null;
+    return new Date(Date.UTC(parts[0], parts[1]-1, parts[2]));
+  }
+  function addDays(d, n) { const x = new Date(d.getTime()); x.setUTCDate(x.getUTCDate()+n); return x; }
+  function fmt(n)  { if (n==null) return '—'; return MP.money(Math.round(n), 0); }
+  function fmtN(n) { if (n==null) return '—'; return Math.round(n).toLocaleString(); }
+  function fmtP(n) { if (n==null) return '—'; return (n*100).toFixed(2)+'%'; }
+  function fmtX(n) { if (n==null) return '—'; return n.toFixed(2)+'x'; }
+
+  // ============================================================================
+  // Initial date pickers — anchored on most recent ad data
+  // ============================================================================
+  let _latestAdDate = null;
+  async function getLatestAdDate() {
+    if (_latestAdDate) return _latestAdDate;
+    const { data } = await sb.from('mp_ad_daily').select('date').in('marketplace', MP.codes()).order('date', { ascending: false }).limit(1);
+    if (data && data[0]) {
+      _latestAdDate = (data[0].date instanceof Date) ? toISO(data[0].date) : String(data[0].date).slice(0,10);
+    }
+    return _latestAdDate;
+  }
+
+  async function initDates() {
+    const latest = await getLatestAdDate();
+    if (latest) {
+      // Default to 30 days back through latest
+      const end = parseISO(latest);
+      const start = addDays(end, -29);
+      document.getElementById('ad-start').value = toISO(start);
+      document.getElementById('ad-end').value = toISO(end);
+    }
+  }
+
+  async function setQuickRange(days) {
+    const latest = await getLatestAdDate();
+    if (!latest) {
+      document.getElementById('ads-content').innerHTML = '<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">No ad data uploaded yet.</div></div>';
+      return;
+    }
+    const end = parseISO(latest);
+    const start = addDays(end, -(days-1));
+    document.getElementById('ad-start').value = toISO(start);
+    document.getElementById('ad-end').value = toISO(end);
+    loadAds();
+  }
+
+  // ============================================================================
+  // Product group / style mapping (from product_group_prefixes table)
+  // ============================================================================
+  let _prefixMap = null;
+  let _oneSizePrefixes = null;
+
+  async function loadProductGroups() {
+    if (_prefixMap) return;
+    const { data } = await sb
+      .from('product_group_prefixes')
+      .select('prefix, product_groups(group_name, is_one_size)');
+    const list = (data || []).map(p => ({
+      prefix: p.prefix.toUpperCase(),
+      group: p.product_groups?.group_name || 'Other',
+      isOneSize: !!p.product_groups?.is_one_size,
+    }));
+    list.sort((a, b) => b.prefix.length - a.prefix.length);
+    _prefixMap = list;
+    _oneSizePrefixes = list.filter(x => x.isOneSize).map(x => x.prefix);
+  }
+
+  function getCategory(sku) {
+    const s = String(sku || '').toUpperCase();
+    for (const p of _prefixMap) {
+      if (s.startsWith(p.prefix)) return p.group;
+    }
+    return 'Other';
+  }
+
+  function getStyle(sku) {
+    const s = String(sku || '').toUpperCase();
+    if (_oneSizePrefixes.some(p => s.startsWith(p))) return s;
+    const idx = s.lastIndexOf('-');
+    return idx !== -1 ? s.slice(0, idx) : s;
+  }
+
+  // Classify an ad row by ad type using the campaign-name token (- SP -, - SB -, - SD -).
+  // The Detailed Ad Report has no "Ad product" column, so the campaign name is the signal.
+  function adTypeOf(campaignName) {
+    const n = ` ${String(campaignName || '').toUpperCase()} `;
+    if (n.includes(' SB ')) return 'Sponsored Brands';
+    if (n.includes(' SD ')) return 'Sponsored Display';
+    if (n.includes(' SP ')) return 'Sponsored Products';
+    return 'Other';
+  }
+
+  // ============================================================================
+  // Data load + calc
+  // ============================================================================
+  async function fetchPaged(table, columns, filters) {
+    const all = [];
+    let from = 0;
+    const page = 1000;
+    while (true) {
+      let q = sb.from(table).select(columns);
+      for (const [k, op, v] of filters) q = q[op](k, v);
+      q = q.order('id', { ascending: true }).range(from, from + page - 1);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      if (!data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < page) break;
+      from += page;
+    }
+    return all;
+  }
+
+  async function rpcAll(fn, args) {
+    const out = []; let off = 0;
+    while (true) {
+      const { data, error } = await sb.rpc(fn, args).range(off, off + 999);
+      if (error) throw new Error(`${fn}: ${error.message}`);
+      out.push(...(data || []));
+      if (!data || data.length < 1000) break;
+      off += 1000;
+    }
+    return out;
+  }
+
+  async function loadAds() {
+    const s = document.getElementById('ad-start').value;
+    const e = document.getElementById('ad-end').value;
+    if (!s || !e) {
+      document.getElementById('ads-content').innerHTML = '<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Pick a start and end date.</div></div>';
+      return;
+    }
+
+    document.getElementById('ads-content').innerHTML = '<div class="loading">Loading data…</div>';
+
+    try {
+      await loadProductGroups();
+
+      // Summed per SKU/campaign inside Supabase and converted to the
+      // display currency at each day's rate (see Step 29 SQL).
+      const args = { p_mks: MP.codes(), p_from: s, p_to: e, p_ccy: MP.displayCurrency() };
+      const [ads, sales] = await Promise.all([rpcAll('mp_ads_summary', args), rpcAll('mp_sales_summary', args)]);
+      window._mpAds = ads; window._mpSales = sales;
+
+      const result = buildAdPerformance(ads, sales);
+      result.start = s; result.end = e;
+      window._adData = result;
+      window._adStyleSort = { col: 'spend', dir: -1 };
+      window._adSkuSort   = { col: 'spend', dir: -1 };
+      window._adGroupSort = { col: 'spend', dir: -1 };
+      document.getElementById('ad-search').value = '';
+      renderAds();
+    } catch (err) {
+      document.getElementById('ads-content').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error</div><div class="empty-sub">${err.message}</div></div>`;
+    }
+  }
+
+  function buildAdPerformance(adRows, salesRows) {
+    // Aggregate ads by SKU
+    const skuAds = new Map();
+    for (const a of adRows) {
+      const k = String(a.sku || '').toUpperCase();
+      if (!k) continue;
+      const v = skuAds.get(k) || { spend: 0, ad_sales: 0, purchases: 0 };
+      v.spend     += parseFloat(a.spend || 0);
+      v.ad_sales  += parseFloat(a.sales || 0);
+      v.purchases += parseInt(a.purchases || 0);
+      skuAds.set(k, v);
+    }
+
+    // Aggregate sales by SKU
+    const skuSales = new Map();
+    for (const r of salesRows) {
+      const k = String(r.sku || '').toUpperCase();
+      if (!k) continue;
+      const v = skuSales.get(k) || { units: 0, revenue: 0 };
+      v.units   += parseInt(r.units || 0);
+      v.revenue += parseFloat(r.revenue || 0);
+      skuSales.set(k, v);
+    }
+
+    // Build SKU rows + style + group rollups
+    const styleMap = new Map();
+    const groupMap = new Map();
+    const skuRows = [];
+
+    const allSkus = new Set([...skuAds.keys(), ...skuSales.keys()]);
+    for (const sku of allSkus) {
+      const ad = skuAds.get(sku) || { spend: 0, ad_sales: 0, purchases: 0 };
+      const sal = skuSales.get(sku) || { units: 0, revenue: 0 };
+      const spend = ad.spend, adSales = ad.ad_sales, revenue = sal.revenue, units = sal.units;
+      if (spend === 0 && revenue === 0) continue;
+
+      const style = getStyle(sku);
+      const category = getCategory(sku);
+
+      const row = {
+        sku, style, category,
+        spend: Math.round(spend * 100) / 100,
+        ad_sales: Math.round(adSales * 100) / 100,
+        revenue: Math.round(revenue * 100) / 100,
+        units,
+        roas:  spend > 0    ? Math.round((adSales / spend) * 100) / 100 : null,
+        tacos: revenue > 0  ? Math.round((spend / revenue) * 10000) / 10000 : null,
+        acos:  adSales > 0  ? Math.round((spend / adSales) * 10000) / 10000 : null,
+      };
+      skuRows.push(row);
+
+      // Style rollup
+      const sv = styleMap.get(style) || { spend: 0, ad_sales: 0, revenue: 0, units: 0 };
+      sv.spend += spend; sv.ad_sales += adSales; sv.revenue += revenue; sv.units += units;
+      styleMap.set(style, sv);
+
+      // Group rollup
+      const gv = groupMap.get(category) || { spend: 0, ad_sales: 0, revenue: 0, units: 0 };
+      gv.spend += spend; gv.ad_sales += adSales; gv.revenue += revenue; gv.units += units;
+      groupMap.set(category, gv);
+    }
+
+    skuRows.sort((a, b) => (b.spend - a.spend) || (b.revenue - a.revenue));
+
+    const finalize = (key, v) => ({
+      style: key,
+      spend: Math.round(v.spend * 100) / 100,
+      ad_sales: Math.round(v.ad_sales * 100) / 100,
+      revenue: Math.round(v.revenue * 100) / 100,
+      units: v.units,
+      roas:  v.spend > 0    ? Math.round((v.ad_sales / v.spend) * 100) / 100 : null,
+      tacos: v.revenue > 0  ? Math.round((v.spend / v.revenue) * 10000) / 10000 : null,
+      acos:  v.ad_sales > 0 ? Math.round((v.spend / v.ad_sales) * 10000) / 10000 : null,
+    });
+
+    const styleRows = [...styleMap.entries()].map(([k, v]) => finalize(k, v)).sort((a, b) => b.spend - a.spend);
+    const groupRows = [...groupMap.entries()].map(([k, v]) => finalize(k, v)).sort((a, b) => b.spend - a.spend);
+
+    // Summary
+    const totalSpend   = skuRows.reduce((s, r) => s + r.spend, 0);
+    const totalRevenue = skuRows.reduce((s, r) => s + r.revenue, 0);
+    const totalAdSales = skuRows.reduce((s, r) => s + r.ad_sales, 0);
+    const totalUnits   = skuRows.reduce((s, r) => s + r.units, 0);
+
+    // ---- Performance by ad type (classified from campaign name) ----
+    const typeMap = new Map();
+    for (const a of adRows) {
+      const t = adTypeOf(a.campaign_name);
+      const v = typeMap.get(t) || { spend: 0, ad_sales: 0, purchases: 0 };
+      v.spend     += parseFloat(a.spend || 0);
+      v.ad_sales  += parseFloat(a.sales || 0);
+      v.purchases += parseInt(a.purchases || 0);
+      typeMap.set(t, v);
+    }
+    const totalTypeSpend = [...typeMap.values()].reduce((s, v) => s + v.spend, 0);
+    const TYPE_ORDER = ['Sponsored Products', 'Sponsored Brands', 'Sponsored Display', 'Other'];
+    const by_ad_type = [...typeMap.entries()].map(([type, v]) => ({
+      type,
+      spend: Math.round(v.spend * 100) / 100,
+      ad_sales: Math.round(v.ad_sales * 100) / 100,
+      purchases: v.purchases,
+      roas: v.spend > 0 ? Math.round((v.ad_sales / v.spend) * 100) / 100 : null,
+      acos: v.ad_sales > 0 ? v.spend / v.ad_sales : null,
+      spend_share: totalTypeSpend > 0 ? v.spend / totalTypeSpend : 0,
+    })).sort((a, b) => TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type));
+
+    return {
+      summary: {
+        total_spend: Math.round(totalSpend * 100) / 100,
+        total_revenue: Math.round(totalRevenue * 100) / 100,
+        total_ad_sales: Math.round(totalAdSales * 100) / 100,
+        total_units: totalUnits,
+        overall_tacos: totalRevenue > 0 ? totalSpend / totalRevenue : 0,
+        overall_roas: totalSpend > 0 ? Math.round((totalAdSales / totalSpend) * 100) / 100 : 0,
+        overall_acos: totalAdSales > 0 ? totalSpend / totalAdSales : 0,
+      },
+      by_ad_type,
+      by_style: styleRows,
+      by_sku: skuRows,
+      by_group: groupRows,
+    };
+  }
+
+  // ============================================================================
+  // Render
+  // ============================================================================
+  function miniKpi(label, value, color) {
+    return `<div class="mini-kpi ${color}"><div class="mini-kpi-label">${label}</div><div class="mini-kpi-value">${value}</div></div>`;
+  }
+
+  function renderAdTypeSection(rows) {
+    if (!rows || !rows.length) return '';
+    let h = `<div class="section-hdr"><div class="section-title">Performance by Ad Type</div><div class="section-sub">SP · SB · SD — classified from campaign names</div></div>`;
+    h += '<div class="table-wrap"><table><thead><tr>';
+    h += '<th>Ad Type</th><th class="r">Spend</th><th class="r">% of Spend</th><th class="r">Ad Sales</th><th class="r">Orders</th><th class="r">ROAS</th><th class="r">ACOS</th>';
+    h += '</tr></thead><tbody>';
+    for (const r of rows) {
+      h += '<tr>';
+      h += `<td>${r.type}</td>`;
+      h += `<td class="r">${fmt(r.spend)}</td>`;
+      h += `<td class="r">${fmtP(r.spend_share)}</td>`;
+      h += `<td class="r">${fmt(r.ad_sales)}</td>`;
+      h += `<td class="r">${fmtN(r.purchases)}</td>`;
+      h += `<td class="r">${r.roas != null ? fmtX(r.roas) : '—'}</td>`;
+      h += `<td class="r">${r.acos != null ? fmtP(r.acos) : '—'}</td>`;
+      h += '</tr>';
+    }
+    h += '</tbody></table></div>';
+    return h;
+  }
+
+  function tacosBadge(t) {
+    if (t == null) return '<span class="badge muted">—</span>';
+    const c = t < 0.15 ? 'green' : t < 0.25 ? 'orange' : 'red';
+    return `<span class="badge ${c}">${fmtP(t)}</span>`;
+  }
+
+  function applyFilter(rows, query) {
+    if (!query) return rows;
+    const q = query.toUpperCase().trim();
+    const isYouth = q.startsWith('Y-');
+    return rows.filter(r => {
+      const key = (r.sku || r.style || '').toUpperCase();
+      const matches = key.includes(q);
+      if (!matches) return false;
+      // Mirror local behavior: filter excludes youth unless query starts with Y-
+      if (isYouth) return true;
+      return !key.startsWith('Y-');
+    });
+  }
+
+  function renderAds() {
+    const d = window._adData;
+    if (!d) return;
+    if (d.error) { document.getElementById('ads-content').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">${d.error}</div></div>`; return; }
+    const s = d.summary;
+    const query = document.getElementById('ad-search').value;
+
+    let html = '';
+
+    // KPIs
+    html += '<div class="kpi-row">';
+    html += miniKpi('Total Spend',   fmt(s.total_spend), 'gold');
+    html += miniKpi('Ad Sales',      fmt(s.total_ad_sales), 'green');
+    html += miniKpi('Total Revenue', fmt(s.total_revenue), 'orange');
+    html += miniKpi('TACOS',         fmtP(s.overall_tacos), 'purple');
+    html += miniKpi('ROAS',          s.overall_roas ? fmtX(s.overall_roas) : '—', 'blue');
+    html += miniKpi('ACOS',          fmtP(s.overall_acos), 'red');
+    html += '</div>';
+
+    // Performance by ad type
+    html += renderAdTypeSection(d.by_ad_type);
+
+    const view = document.getElementById('ad-view-select').value || 'style';
+    let rows, sortState, label;
+    if (view === 'style') { rows = applyFilter(d.by_style, query); sortState = window._adStyleSort; label = 'By Style'; }
+    else if (view === 'group') { rows = applyFilter(d.by_group, query); sortState = window._adGroupSort; label = 'By Product Group'; }
+    else { rows = applyFilter(d.by_sku, query); sortState = window._adSkuSort; label = 'By SKU'; }
+
+    html += `<div class="section-hdr"><div class="section-title">${label}</div><div class="section-sub">${rows.length.toLocaleString()} row${rows.length===1?'':'s'} · ${d.start} → ${d.end}</div></div>`;
+    html += buildTable(view, rows, sortState);
+
+    document.getElementById('ads-content').innerHTML = html;
+  }
+
+  function buildTable(type, rows, sortState) {
+    const isStyle = type === 'style' || type === 'group';
+
+    const sorted = [...rows].sort((a, b) => {
+      const av = a[sortState.col];
+      const bv = b[sortState.col];
+      const _a = av == null ? (sortState.dir === -1 ? -Infinity : Infinity) : av;
+      const _b = bv == null ? (sortState.dir === -1 ? -Infinity : Infinity) : bv;
+      if (typeof _a === 'string') return sortState.dir * _a.localeCompare(_b);
+      return sortState.dir * (_b - _a);
+    });
+
+    const cols = [
+      { key: 'style', label: isStyle ? 'Style' : 'SKU', sortDefault: 1 },
+      { key: 'spend', label: 'Spend', sortDefault: -1, r: true },
+      { key: 'ad_sales', label: 'Ad Sales', sortDefault: -1, r: true },
+      { key: 'revenue', label: 'Revenue', sortDefault: -1, r: true },
+      { key: 'units', label: 'Units', sortDefault: -1, r: true },
+      { key: 'roas', label: 'ROAS', sortDefault: -1, r: true },
+      { key: 'tacos', label: 'TACOS', sortDefault: -1, r: true },
+      { key: 'acos', label: 'ACOS', sortDefault: -1, r: true },
+    ];
+
+    let html = '<div class="table-wrap"><table><thead><tr>';
+    for (const col of cols) {
+      const active = sortState.col === col.key;
+      const arrow = active ? (sortState.dir === -1 ? ' ↓' : ' ↑') : '';
+      html += `<th${col.r ? ' class="r"' : ''} onclick="sortAdTable('${type}','${col.key}',${col.sortDefault})">${col.label}${arrow}</th>`;
+    }
+    html += '</tr></thead><tbody>';
+
+    if (sorted.length === 0) {
+      html += `<tr><td colspan="${cols.length}" style="text-align:center;padding:30px;color:var(--text-dim);">No rows match.</td></tr>`;
+    } else {
+      for (const r of sorted) {
+        html += '<tr>';
+        const keyVal = isStyle ? (r.style || r.sku || '') : (r.sku || '');
+        html += `<td class="mono">${keyVal}</td>`;
+        html += `<td class="r">${fmt(r.spend)}</td>`;
+        html += `<td class="r">${fmt(r.ad_sales)}</td>`;
+        html += `<td class="r">${fmt(r.revenue)}</td>`;
+        html += `<td class="r">${fmtN(r.units)}</td>`;
+        html += `<td class="r">${r.roas != null ? fmtX(r.roas) : '—'}</td>`;
+        html += `<td class="r">${tacosBadge(r.tacos)}</td>`;
+        html += `<td class="r">${r.acos != null ? fmtP(r.acos) : '—'}</td>`;
+        html += '</tr>';
+      }
+    }
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  function sortAdTable(type, col, defaultDir) {
+    const stateRef = type === 'group' ? '_adGroupSort' : (type === 'style' ? '_adStyleSort' : '_adSkuSort');
+    const state = window[stateRef];
+    if (state.col === col) {
+      state.dir *= -1;
+    } else {
+      state.col = col;
+      state.dir = defaultDir;
+    }
+    renderAds();
+  }
+
+  // All Markets: a by-marketplace summary above the usual tables.
+  const _renderAdsBase = renderAds;
+  renderAds = function () {
+    _renderAdsBase();
+    if (!MP.isAll() || !window._mpAds) return;
+    const by = {};
+    for (const m of MP.list()) by[m.code] = { spend: 0, adSales: 0, purchases: 0, revenue: 0 };
+    for (const r of window._mpAds) { const o = by[r.marketplace]; if (o) { o.spend += Number(r.spend) || 0; o.adSales += Number(r.sales) || 0; o.purchases += Number(r.purchases) || 0; } }
+    for (const r of window._mpSales) { const o = by[r.marketplace]; if (o) o.revenue += Number(r.revenue) || 0; }
+    const pct = n => n == null || !isFinite(n) ? '—' : (n * 100).toFixed(1) + '%';
+    let h = `<div class="section-hdr"><div class="section-title">By marketplace</div><div class="section-sub">USD at each day's exchange rate</div></div><div class="table-wrap"><table><thead><tr><th>Marketplace</th><th class="r">Ad spend</th><th class="r">Ad sales</th><th class="r">Purchases</th><th class="r">ROAS</th><th class="r">ACOS</th><th class="r">Total revenue</th><th class="r">TACoS</th></tr></thead><tbody>`;
+    for (const m of MP.list()) { const o = by[m.code];
+      h += `<tr><td>${m.flag} ${m.name}</td><td class="r">${fmt(o.spend)}</td><td class="r">${fmt(o.adSales)}</td><td class="r">${fmtN(o.purchases)}</td><td class="r">${o.spend ? (o.adSales / o.spend).toFixed(2) + 'x' : '—'}</td><td class="r">${pct(o.adSales ? o.spend / o.adSales : null)}</td><td class="r">${fmt(o.revenue)}</td><td class="r">${pct(o.revenue ? o.spend / o.revenue : null)}</td></tr>`; }
+    h += '</tbody></table></div>';
+    const box = document.getElementById('ads-content');
+    box.insertAdjacentHTML('afterbegin', h);
+  };
+</script>
+
+</body>
+</html>
