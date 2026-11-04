@@ -1,0 +1,796 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demand Planner — Burlebo Analytics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/auth.js"></script>
+<style>
+  :root {
+    --bg: #0d0f12; --panel: #14171c; --panel-2: #1a1e25;
+    --border: #252a33; --text: #e8eaed; --text-dim: #8a92a0;
+    --accent: #ff6b35; --green: #4ade80; --red: #f87171; --yellow: #fbbf24; --blue: #38bdf8; --purple: #a78bfa;
+    --radius: 10px; --radius-sm: 6px;
+    --coy: #ff6b35;      --coy-bg: rgba(255, 107, 53, 0.15);
+    --designer: #a78bfa; --designer-bg: rgba(167, 139, 250, 0.15);
+    --admin: #4ade80;    --admin-bg: rgba(74, 222, 128, 0.15);
+    --employee: #38bdf8; --employee-bg: rgba(56, 189, 248, 0.15);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'DM Sans', system-ui, sans-serif; }
+  header { border-bottom: 1px solid var(--border); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; background: var(--panel); }
+  header h1 { font-size: 18px; font-weight: 700; margin: 0; }
+  header nav { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  header nav a { color: var(--text-dim); text-decoration: none; font-size: 14px; font-weight: 500; }
+  header nav a:hover { color: var(--text); }
+  header nav a.active { color: var(--accent); }
+  .role-pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .role-pill:hover { opacity: 0.85; }
+  .role-pill.coy { background: var(--coy-bg); color: var(--coy); }
+  .role-pill.designer { background: var(--designer-bg); color: var(--designer); }
+  .role-pill.admin { background: var(--admin-bg); color: var(--admin); }
+  .role-pill.employee { background: var(--employee-bg); color: var(--employee); }
+
+  main { max-width: 1200px; margin: 0 auto; padding: 28px 32px; }
+  main.hidden { display: none; }
+  .page-title { font-size: 28px; font-weight: 700; margin: 0 0 4px 0; }
+  .page-sub { font-size: 14px; color: var(--text-dim); margin: 0 0 24px 0; }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 20px; }
+  .panel-title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); margin: 0 0 14px; }
+
+  .ctrl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 11px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .field input, .field select {
+    padding: 9px 11px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-family: inherit; font-size: 14px; width: 100%;
+  }
+  .field input:focus, .field select:focus { border-color: var(--accent); outline: none; }
+  .field .hint { font-size: 11px; color: var(--text-dim); }
+
+  .row-inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+  .btn { padding: 7px 14px; border-radius: var(--radius-sm); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); }
+  .btn:hover { background: #1f242c; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.ghost { background: transparent; color: var(--text-dim); }
+  .btn.ghost:hover { color: var(--text); }
+  .btn.sm { padding: 5px 10px; font-size: 12px; }
+
+  .check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); cursor: pointer; }
+  .check input { width: 16px; height: 16px; accent-color: var(--accent); }
+
+  .info-line { font-size: 12px; color: var(--text-dim); margin-top: 12px; line-height: 1.6; }
+  .info-line b { color: var(--text); font-weight: 600; }
+  .pill-rate { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--panel-2); color: var(--text); font-size: 12px; font-weight: 600; margin-right: 4px; }
+  .notice { display: flex; gap: 10px; align-items: flex-start; background: rgba(255,107,53,0.10); border: 1px solid rgba(255,107,53,0.35); color: var(--text); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 22px; font-size: 13px; line-height: 1.5; }
+  .notice b { color: var(--accent); }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+  .kpi-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .kpi-value { font-size: 24px; font-weight: 700; line-height: 1.1; }
+  .kpi-value.accent { color: var(--accent); }
+  .kpi-sub { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+
+  .table-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead tr { background: var(--panel-2); }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--text-dim); font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; }
+  td.r, th.r { text-align: right; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+  tfoot td { font-weight: 700; background: var(--panel-2); border-top: 2px solid var(--border); }
+  .mix-input { width: 74px; padding: 5px 7px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 5px; font-family: inherit; font-size: 13px; text-align: right; }
+  .mix-input:focus { border-color: var(--accent); outline: none; }
+  .mix-bad { border-color: var(--red) !important; }
+
+  .empty { text-align: center; padding: 70px 20px; color: var(--text-dim); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+  .empty-icon { font-size: 36px; margin-bottom: 8px; }
+  .empty-title { font-size: 15px; margin-bottom: 4px; color: var(--text); }
+  .loading { color: var(--text-dim); font-size: 14px; padding: 40px 0; text-align: center; }
+  .warn { color: var(--yellow); }
+
+  /* Role modal (auth.js injects into these) */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  .modal-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; width: 380px; max-width: calc(100vw - 32px); }
+  .modal-title { font-size: 18px; font-weight: 700; margin: 0 0 6px 0; }
+  .modal-sub { font-size: 13px; color: var(--text-dim); margin: 0 0 20px 0; }
+  .modal-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .modal-option { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 13px 14px; border-radius: var(--radius-sm); font-family: inherit; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+  .modal-option:hover { background: #1f242c; border-color: #2f3540; }
+  .modal-option .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .modal-option .dot.coy { background: var(--coy); }
+  .modal-option .dot.designer { background: var(--designer); }
+  .modal-option .dot.admin { background: var(--admin); }
+  .modal-option .dot.employee { background: var(--employee); }
+  .pw-field { display: none; margin-top: 8px; }
+  .pw-field input { width: 100%; padding: 11px 12px; font-family: 'DM Sans', sans-serif; font-size: 14px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); outline: none; margin-bottom: 8px; }
+  .pw-field input:focus { border-color: var(--accent); }
+  .pw-error { display: none; font-size: 12px; color: var(--red); margin-bottom: 8px; }
+  .pw-row { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+
+<header id="app-header" style="display:none;">
+  <h1>Burlebo Analytics</h1>
+  <nav id="main-nav">
+    <span class="role-pill" id="role-pill"></span>
+  </nav>
+</header>
+
+<main id="app-main" class="hidden">
+  <div class="page-title">Demand Planner</div>
+  <div class="page-sub">Forecast how many units to order for any style over a date window, broken out by size — built on real trailing velocity (US + Canada) + current FBA stock.</div>
+
+  <div class="notice">📈 <div><b>Forecasts assume +25% YoY growth.</b> Each style's current velocity is automatically uplifted 25% before demand is calculated, to account for brand growth. Change the "YoY growth %" field on any style if your expectation differs.</div></div>
+
+  <div id="planner-body">
+    <div class="empty"><div class="empty-icon">📈</div><div class="empty-title">Loading sales + inventory…</div></div>
+  </div>
+</main>
+
+<script>
+  // ============================================================================
+  // Shared nav loader (identical to other pages)
+  // ============================================================================
+  async function loadSharedNav() {
+    try {
+      const r = await fetch('/nav.html', { cache: 'no-cache' });
+      if (!r.ok) return;
+      const html = await r.text();
+      const nav = document.getElementById('main-nav');
+      const pill = document.getElementById('role-pill');
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const here = window.location.pathname.replace(/\/$/, '') || '/';
+      for (const a of tmp.querySelectorAll('a')) {
+        const href = a.getAttribute('href');
+        if (href === here || (href === '/' && here === '/')) a.classList.add('active');
+        nav.insertBefore(a, pill);
+      }
+    } catch (err) { console.error('Nav load failed:', err); }
+  }
+
+  const SUPABASE_URL = 'https://uoetojuyzyngfopsmmxk.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvZXRvanV5enluZ2ZvcHNtbXhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzODY3ODIsImV4cCI6MjA5NDk2Mjc4Mn0.FVhs_0waTWIYkTVY2j4HERhlovggIFau07RuBu69M8E';
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  window.onAuthReady = function () { loadSharedNav(); loadData(); };
+
+  // ============================================================================
+  // Helpers (UTC-safe) — ported from inventory.html
+  // ============================================================================
+  function toISO(d) { return d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0'); }
+  function parseISO(s) {
+    if (!s) return null;
+    const parts = String(s).slice(0,10).split('-').map(n => parseInt(n,10));
+    if (parts.length !== 3 || parts.some(isNaN)) return null;
+    return new Date(Date.UTC(parts[0], parts[1]-1, parts[2]));
+  }
+  function daysBetween(a, b) { return Math.round((b.getTime() - a.getTime()) / 86400000); }
+  function fmtN(n) { if (n==null || isNaN(n)) return '—'; return Math.round(n).toLocaleString(); }
+  function fmt1(n) { if (n==null || isNaN(n)) return '—'; return (Math.round(n*10)/10).toLocaleString(); }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // SKU helpers — ports of the FBA processor (same as inventory.html)
+  const MENS_SIZES  = ["S", "M", "L", "XL", "XXL", "XXXL"];
+  const YOUTH_SIZES = ["2T", "3T", "4T", "5T", "XS", "S", "M", "L", "XL"];
+  const BABY_SIZES  = ["NB", "0/3", "3/6", "6/12", "12/18"];
+  const ONE_SIZE_PREFIXES = ["BP-", "C-", "DB-"];
+
+  function stripFba(sku) {
+    const s = String(sku || '').toUpperCase().trim();
+    if (s.startsWith('FBA2-')) return s.slice(5);
+    if (s.startsWith('FBA-'))  return s.slice(4);
+    return s;
+  }
+  function isYouth(sku) { return stripFba(sku).startsWith('Y-'); }
+  function isBaby(sku)  { return stripFba(sku).startsWith('BZU-'); }
+  function isOneSize(sku) { const s = stripFba(sku); return ONE_SIZE_PREFIXES.some(p => s.startsWith(p)); }
+  function baseStyle(sku) {
+    const s = stripFba(sku);
+    if (isOneSize(sku)) return s;
+    const idx = s.lastIndexOf('-');
+    return idx !== -1 ? s.slice(0, idx) : s;
+  }
+  function sizeOf(sku) {
+    const s = stripFba(sku);
+    const idx = s.lastIndexOf('-');
+    return idx !== -1 ? s.slice(idx + 1) : '';
+  }
+  function styleType(style) {
+    if (ONE_SIZE_PREFIXES.some(p => style.startsWith(p))) return 'OS';
+    if (style.startsWith('BZU-')) return 'BZU';
+    if (style.startsWith('Y-')) return 'Y';
+    return 'M';
+  }
+  function sizeOrderFor(type) {
+    if (type === 'BZU') return BABY_SIZES;
+    if (type === 'Y') return YOUTH_SIZES;
+    if (type === 'OS') return ['OS'];
+    return MENS_SIZES;
+  }
+
+  // OOS detection config:
+  //   - measure velocity over a recent window
+  //   - a run of >= OOS_RUN_MIN consecutive zero-sale days = a stockout, dropped from the denominator
+  const OOS_WINDOW_DAYS = 30;   // window for the in-stock (OOS-corrected) rate
+  const RECENT_WINDOW_DAYS = 7; // window for the recency nudge
+  const OOS_RUN_MIN = 3;        // consecutive zero days that count as out-of-stock
+
+  // OOS-aware blend: start from the in-stock 30d rate, nudge up only if the
+  // recent in-stock pace is clearly hotter (capped). Same shape as the old
+  // calcVelocity, but fed OOS-corrected per-day rates instead of calendar averages.
+  function smartFrom(base, recent) {
+    if (base <= 0) return recent || 0;
+    let vel = base;
+    if (recent >= base * 1.25) vel = base * 0.65 + Math.min(recent, base * 1.5) * 0.35;
+    return vel;
+  }
+
+  // Blended velocity (same shape as inventory.html's calcVelocity)
+  function calcVelocity(u7, u30, daysInFba) {
+    if (daysInFba && daysInFba >= 30) {
+      const daily30 = u30 > 0 ? u30 / 30 : 0;
+      const daily7  = u7  > 0 ? u7  / 7  : 0;
+      if (daily30 <= 0) return daily7;
+      let vel = daily30;
+      const adj7 = Math.min(daily7, daily30 * 1.5);
+      if (adj7 >= daily30 * 1.25) vel = daily30 * 0.65 + adj7 * 0.35;
+      return vel;
+    }
+    return u7 > 0 ? u7 / 7 : 0;
+  }
+
+  // ============================================================================
+  // Product-group prefix map (for labeling styles)
+  // ============================================================================
+  let _prefixMap = null;
+  async function loadProductGroups() {
+    if (_prefixMap) return;
+    const { data: prefixes } = await sb.from('product_group_prefixes').select('prefix, product_groups(group_name)');
+    const list = (prefixes || []).map(p => ({ prefix: p.prefix.toUpperCase(), group: p.product_groups?.group_name || 'Other' }));
+    list.sort((a, b) => b.prefix.length - a.prefix.length);
+    _prefixMap = list;
+  }
+  function getCategory(style) {
+    if (!_prefixMap) return 'Other';
+    for (const p of _prefixMap) { if (style.startsWith(p.prefix)) return p.group; }
+    return 'Other';
+  }
+
+  async function fetchPaged(table, columns, filters = []) {
+    const all = []; let from = 0; const page = 1000;
+    while (true) {
+      let q = sb.from(table).select(columns);
+      for (const [k, op, v] of filters) q = q[op](k, v);
+      q = q.order('id', { ascending: true }).range(from, from + page - 1);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      if (!data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < page) break;
+      from += page;
+    }
+    return all;
+  }
+
+  // ============================================================================
+  // Load + aggregate
+  // ============================================================================
+  let STYLES = {};        // style -> { style, type, name, group, latest, sizes: {size: {...}} }
+  let LATEST_ISO = null;
+
+  async function loadData() {
+    try {
+      const { data: latestSales } = await sb.from('mp_sales_daily').select('date').eq('marketplace', 'US').order('date', { ascending: false }).limit(1);
+      LATEST_ISO = (latestSales && latestSales[0])
+        ? ((latestSales[0].date instanceof Date) ? toISO(latestSales[0].date) : String(latestSales[0].date).slice(0,10))
+        : null;
+      const latestDate = LATEST_ISO ? parseISO(LATEST_ISO) : null;
+
+      let salesWindow = [];
+      if (LATEST_ISO) {
+        const start = parseISO(LATEST_ISO);
+        start.setUTCDate(start.getUTCDate() - 89);
+        // All marketplaces: Canada sells from the same production run.
+        salesWindow = await fetchPaged('mp_sales_daily', 'date, sku, units',
+          [['marketplace', 'in', ['US', 'CA']], ['date', 'gte', toISO(start)], ['date', 'lte', LATEST_ISO]]);
+      }
+      const fba = await fetchPaged('mp_fba_inventory_snapshot', 'sku, raw_sku, product_name, on_hand, reserved, inbound_total', [['marketplace', 'eq', 'US']]);
+      await loadProductGroups();
+
+      // Per-sku trailing units + first date
+      const skuDateMap = new Map();   // sku -> Map(dateStr -> units)
+      const skuFirst = new Map();
+      for (const r of salesWindow) {
+        const sku = stripFba(r.sku); if (!sku) continue;
+        const dateStr = (r.date instanceof Date) ? toISO(r.date) : String(r.date).slice(0,10);
+        const d = parseISO(dateStr); if (!d) continue;
+        if (!skuDateMap.has(sku)) skuDateMap.set(sku, new Map());
+        const dm = skuDateMap.get(sku);
+        dm.set(dateStr, (dm.get(dateStr) || 0) + (r.units || 0));
+        const ex = skuFirst.get(sku);
+        if (!ex || d < ex) skuFirst.set(sku, d);
+      }
+      function shipped(sku, days) {
+        const dm = skuDateMap.get(sku); if (!dm || !latestDate) return 0;
+        let t = 0;
+        for (const [ds, u] of dm.entries()) { const d = parseISO(ds); if (d && daysBetween(d, latestDate) < days) t += u; }
+        return t;
+      }
+      // OOS-corrected stats for one SKU over the last `windowDays`.
+      // Builds the full daily series from max(latest-window+1, firstSale) → latest,
+      // treats any run of >= OOS_RUN_MIN consecutive zero-sale days as a stockout,
+      // and divides units by the remaining in-stock days. Pre-launch days are
+      // excluded by clamping the window start to the SKU's first sale date.
+      function inStockStats(sku, windowDays) {
+        const dm = skuDateMap.get(sku);
+        if (!dm || !latestDate) return { units: 0, totalDays: 0, inStockDays: 0, oosDays: 0, rate: 0 };
+        const first = skuFirst.get(sku);
+        let start = new Date(latestDate);
+        start.setUTCDate(start.getUTCDate() - (windowDays - 1));
+        if (first && first.getTime() > start.getTime()) start = new Date(first);
+        const totalDays = daysBetween(start, latestDate) + 1;
+        if (totalDays <= 0) return { units: 0, totalDays: 0, inStockDays: 0, oosDays: 0, rate: 0 };
+        const series = [];
+        for (let k = 0; k < totalDays; k++) {
+          const d = new Date(start); d.setUTCDate(d.getUTCDate() + k);
+          series.push(dm.get(toISO(d)) || 0);
+        }
+        // sum zero-runs of length >= OOS_RUN_MIN
+        let oos = 0, i = 0;
+        while (i < series.length) {
+          if (series[i] === 0) {
+            let j = i; while (j < series.length && series[j] === 0) j++;
+            const run = j - i;
+            if (run >= OOS_RUN_MIN) oos += run;
+            i = j;
+          } else i++;
+        }
+        const units = series.reduce((a, b) => a + b, 0);
+        const inStockDays = totalDays - oos;
+        // Guard: if a SKU looks "out of stock" more than 60% of the window, it's
+        // more likely an intermittent slow-seller than a stocked-out fast mover —
+        // so DON'T divide by the few selling days (that would overstate it).
+        // Fall back to the plain calendar rate and mark it as not corrected.
+        let rate, applied;
+        if (inStockDays <= 0) { rate = 0; applied = false; }
+        else if (oos > 0 && oos / totalDays <= 0.6) { rate = units / inStockDays; applied = true; }
+        else { rate = units / totalDays; applied = false; }
+        return { units, totalDays, inStockDays, oosDays: oos, rate, applied };
+      }
+
+      // FBA stock by clean sku (only true FBA listings)
+      const invMap = new Map();
+      for (const row of fba) {
+        const raw = String(row.raw_sku || '').toUpperCase();
+        if (!(raw.startsWith('FBA-') || raw.startsWith('FBA2-'))) continue;
+        invMap.set(stripFba(row.sku), row);
+      }
+
+      const allSkus = new Set([...skuDateMap.keys(), ...invMap.keys()]);
+      const styles = {};
+      for (const sku of allSkus) {
+        const style = baseStyle(sku);
+        const size = isOneSize(sku) ? 'OS' : (sizeOf(sku) || 'OS');
+        if (!styles[style]) styles[style] = { style, type: styleType(style), name: '', group: getCategory(style), latest: null, sizes: {} };
+        const st = styles[style];
+        const inv = invMap.get(sku);
+        if (inv && inv.product_name && !st.name) st.name = inv.product_name;
+        const first = skuFirst.get(sku);
+        if (first && (!st.latest || first < st.latest)) st.latest = first;
+        const is30 = inStockStats(sku, OOS_WINDOW_DAYS);
+        const is7  = inStockStats(sku, RECENT_WINDOW_DAYS);
+        st.sizes[size] = {
+          size,
+          u7:  shipped(sku, 7),  u14: shipped(sku, 14), u30: shipped(sku, 30),
+          u60: shipped(sku, 60), u90: shipped(sku, 90),
+          isRate30: is30.rate, isRate7: is7.rate, oosDays30: (is30.applied ? is30.oosDays : 0), inStockDays30: is30.inStockDays,
+          on_hand: inv ? (inv.on_hand || 0) : 0,
+          inbound: inv ? (inv.inbound_total || 0) : 0,
+        };
+      }
+      STYLES = styles;
+      renderShell();
+    } catch (err) {
+      document.getElementById('planner-body').innerHTML =
+        `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error loading data</div><div class="empty-sub">${escapeHtml(err.message)}</div></div>`;
+    }
+  }
+
+  // ============================================================================
+  // UI
+  // ============================================================================
+  function defaultWindow() {
+    // Default to the upcoming Jan 1 – Jun 30 (Spring) window.
+    const now = new Date();
+    let yr = now.getUTCFullYear();
+    if (now.getUTCMonth() > 5) yr += 1; // past June -> next year's spring
+    else yr += (now.getUTCMonth() >= 0 ? 1 : 0); // always plan next spring by default
+    return { start: `${yr}-01-01`, end: `${yr}-06-30` };
+  }
+
+  function renderShell() {
+    const styleList = Object.values(STYLES).sort((a,b) =>
+      (a.group + a.style).localeCompare(b.group + b.style));
+    const opts = styleList.map(s => {
+      const label = s.style + (s.name ? '  —  ' + s.name : '') + '   (' + s.group + ')';
+      return `<option value="${escapeHtml(s.style)}">${escapeHtml(label)}</option>`;
+    }).join('');
+    const dw = defaultWindow();
+
+    document.getElementById('planner-body').innerHTML = `
+      <div class="panel">
+        <div class="panel-title">1 · Pick a style &amp; window</div>
+        <div class="ctrl-grid">
+          <div class="field" style="grid-column: span 2;">
+            <label>Style (colorway)</label>
+            <input id="p-style" list="style-list" placeholder="Type to search — e.g. GTT-CDC" autocomplete="off" oninput="onStyle()">
+            <datalist id="style-list">${opts}</datalist>
+            <div class="hint" id="p-style-hint">${styleList.length} styles loaded · latest sales ${LATEST_ISO || '—'}</div>
+          </div>
+          <div class="field">
+            <label>Window start</label>
+            <input type="date" id="p-start" value="${dw.start}" onchange="recompute()">
+          </div>
+          <div class="field">
+            <label>Window end</label>
+            <input type="date" id="p-end" value="${dw.end}" onchange="recompute()">
+          </div>
+        </div>
+        <div class="row-inline">
+          <span class="ctrl-label" style="font-size:12px;color:var(--text-dim);">Quick window:</span>
+          <button class="btn sm" onclick="setWindow('spring')">Spring (Jan–Jun)</button>
+          <button class="btn sm" onclick="setWindow('fall')">Fall (Jul–Dec)</button>
+          <button class="btn sm" onclick="setWindow('next90')">Next 90 days</button>
+          <button class="btn sm" onclick="setWindow('next180')">Next 6 months</button>
+        </div>
+        <div class="row-inline" style="margin-top:12px;border-top:1px solid var(--border,rgba(255,255,255,0.08));padding-top:12px;">
+          <span class="ctrl-label" style="font-size:12px;color:var(--text-dim);">Export all styles:</span>
+          <label style="font-size:12px;color:var(--text-dim);">YoY %
+            <input type="number" id="exp-growth" value="25" step="5" style="width:62px;margin-left:4px;">
+          </label>
+          <label style="font-size:12px;color:var(--text-dim);">Buffer wk
+            <input type="number" id="exp-buffer" value="2" min="0" step="1" style="width:62px;margin-left:4px;">
+          </label>
+          <button class="btn sm" onclick="exportAll()">⬇ Export all (CSV)</button>
+          <span class="hint" style="margin:0;">Uses the window above · one row per style/size with forecast, current FBA, and net-to-send.</span>
+        </div>
+      </div>
+
+      <div id="p-detail"></div>
+    `;
+  }
+
+  function setWindow(kind) {
+    const now = new Date();
+    let s, e;
+    if (kind === 'spring') { let y = now.getUTCFullYear() + (now.getUTCMonth() > 5 ? 1 : 0); s = `${y}-01-01`; e = `${y}-06-30`; }
+    else if (kind === 'fall') { let y = now.getUTCFullYear() + (now.getUTCMonth() > 11 ? 1 : 0); s = `${y}-07-01`; e = `${y}-12-31`; }
+    else if (kind === 'next90') { const a = new Date(now); const b = new Date(now); b.setUTCDate(b.getUTCDate()+90); s = toISO(a); e = toISO(b); }
+    else { const a = new Date(now); const b = new Date(now); b.setUTCDate(b.getUTCDate()+180); s = toISO(a); e = toISO(b); }
+    document.getElementById('p-start').value = s;
+    document.getElementById('p-end').value = e;
+    recompute();
+  }
+
+  let SEL = null; // selected style working state
+
+  function onStyle() {
+    const v = (document.getElementById('p-style').value || '').toUpperCase().trim();
+    const st = STYLES[v];
+    if (!st) { SEL = null; document.getElementById('p-detail').innerHTML = ''; return; }
+
+    // style-level trailing sums
+    const sizes = Object.values(st.sizes);
+    const sum = k => sizes.reduce((a,s) => a + (s[k]||0), 0);
+    const U7 = sum('u7'), U14 = sum('u14'), U30 = sum('u30'), U60 = sum('u60'), U90 = sum('u90');
+    const daysInFba = st.latest ? (daysBetween(st.latest, parseISO(LATEST_ISO)) + 1) : null;
+    const baseIS = sum('isRate30');   // OOS-corrected 30d rate (per-size, summed)
+    const recentIS = sum('isRate7');  // OOS-corrected recent rate, for the nudge
+    const rates = {
+      t7:  U7/7,  t14: U14/14, t30: U30/30, t60: U60/60,
+      instock: baseIS,
+      smart: smartFrom(baseIS, recentIS),
+    };
+    const stockTotal = sizes.reduce((a,s) => a + (s.on_hand||0), 0);
+    // OOS flag: which sizes had stockout stretches removed, and how many days
+    const oosSizes = Object.entries(st.sizes)
+      .filter(([,s]) => (s.oosDays30||0) > 0)
+      .map(([sz,s]) => ({ size: sz, days: s.oosDays30 }))
+      .sort((a,b) => b.days - a.days);
+
+    // default mix from T30 per size (fallback T60 -> T90 -> T7 -> even)
+    const order = sizeOrderFor(st.type);
+    const present = Object.keys(st.sizes).sort((a,b) => {
+      const ra = order.indexOf(a), rb = order.indexOf(b);
+      return (ra===-1?999:ra) - (rb===-1?999:rb);
+    });
+    function mixBasis() {
+      for (const k of ['u30','u60','u90','u7']) {
+        const tot = sizes.reduce((a,s)=>a+(s[k]||0),0);
+        if (tot > 0) return k;
+      }
+      return null;
+    }
+    const mb = mixBasis();
+    const mix = {};
+    if (mb) { const tot = sizes.reduce((a,s)=>a+(s[mb]||0),0); present.forEach(sz => mix[sz] = (st.sizes[sz][mb]||0)/tot*100); }
+    else { present.forEach(sz => mix[sz] = 100/present.length); }
+
+    SEL = { st, present, rates, daysInFba, stockTotal, oosSizes, mix, mixBasisLabel: mb ? mb.toUpperCase().replace('U','T') : 'even', defaultRate: (rates.smart || rates.instock || rates.t30 || rates.t7 || 0) };
+    renderDetail();
+    // default the plan rate
+    const ri = document.getElementById('p-rate');
+    if (ri) ri.value = Math.round((SEL.defaultRate)*10)/10;
+    recompute();
+  }
+
+  function renderDetail() {
+    if (!SEL) return;
+    const r = SEL.rates;
+    const newish = SEL.daysInFba != null && SEL.daysInFba < 14;
+    const oos = SEL.oosSizes || [];
+    const oosWarn = oos.length
+      ? `<br><span class="warn">🟠 OOS-corrected — dropped stockout stretches (≥${OOS_RUN_MIN} consecutive zero-sale days, last ${OOS_WINDOW_DAYS}d) from: ${oos.map(o => escapeHtml(o.size) + ' (' + o.days + 'd)').join(', ')}. The In-stock &amp; Smart rates divide by in-stock days only, so these sizes aren't under-counted.</span>`
+      : '';
+    document.getElementById('p-detail').innerHTML = `
+      <div class="panel">
+        <div class="panel-title">2 · Demand rate &amp; buffer</div>
+        <div class="info-line">
+          <b>${escapeHtml(SEL.st.style)}</b> &nbsp;raw calendar avg:
+          <span class="pill-rate">T7 ${fmt1(r.t7)}/day</span>
+          <span class="pill-rate">T30 ${fmt1(r.t30)}/day</span>
+          <span class="pill-rate">T60 ${fmt1(r.t60)}/day</span>
+          &nbsp;·&nbsp;OOS-corrected:
+          <span class="pill-rate" style="background:rgba(74,222,128,0.16);color:var(--green);">In-stock ${fmt1(r.instock)}/day</span>
+          <span class="pill-rate" style="background:rgba(255,107,53,0.16);color:var(--accent);">Smart ${fmt1(r.smart)}/day</span>
+          &nbsp;·&nbsp;current FBA stock <b>${fmtN(SEL.stockTotal)}</b>
+          ${oosWarn}
+          ${newish ? `<br><span class="warn">⚠ Only ~${SEL.daysInFba} days of sales history — set the plan rate by hand if it's still ramping.</span>` : ''}
+        </div>
+        <div class="ctrl-grid" style="margin-top:14px;">
+          <div class="field">
+            <label>Plan rate (units/day)</label>
+            <input type="number" id="p-rate" min="0" step="0.5" value="${Math.round(SEL.defaultRate*10)/10}" oninput="recompute()">
+            <div class="hint">Override freely — your call beats the history.</div>
+          </div>
+          <div class="field">
+            <label>Prefill from</label>
+            <select id="p-basis" onchange="applyBasis()">
+              <option value="smart" selected>Smart (OOS-corrected)</option>
+              <option value="instock">In-stock 30d (OOS-corr)</option>
+              <option value="t7">T7 avg (raw)</option>
+              <option value="t14">T14 avg (raw)</option>
+              <option value="t30">T30 avg (raw)</option>
+              <option value="t60">T60 avg (raw)</option>
+            </select>
+            <div class="hint">Pick a basis to refill the rate.</div>
+          </div>
+          <div class="field">
+            <label>YoY growth (%)</label>
+            <input type="number" id="p-growth" step="5" value="25" oninput="recompute()">
+            <div class="hint">Defaults to 25%. Adjust per style if needed.</div>
+          </div>
+          <div class="field">
+            <label>Buffer (weeks)</label>
+            <input type="number" id="p-buffer" min="0" step="1" value="2" oninput="recompute()">
+            <div class="hint">Safety stock on top of demand.</div>
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <label class="check"><input type="checkbox" id="p-net" onchange="recompute()"> Subtract current FBA stock</label>
+            <div class="hint">Leave off for windows far out (today's stock sells through first).</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="p-results"></div>
+    `;
+  }
+
+  function applyBasis() {
+    if (!SEL) return;
+    const basis = document.getElementById('p-basis').value;
+    document.getElementById('p-rate').value = Math.round((SEL.rates[basis]||0)*10)/10;
+    recompute();
+  }
+
+  function recompute() {
+    if (!SEL) return;
+    const baseRate = parseFloat(document.getElementById('p-rate').value) || 0;
+    const growth = parseFloat(document.getElementById('p-growth').value) || 0;
+    const rate = baseRate * (1 + growth/100);
+    const bufW = parseFloat(document.getElementById('p-buffer').value) || 0;
+    const net  = document.getElementById('p-net').checked;
+    const sISO = document.getElementById('p-start').value;
+    const eISO = document.getElementById('p-end').value;
+    const sD = parseISO(sISO), eD = parseISO(eISO);
+    let days = (sD && eD) ? daysBetween(sD, eD) + 1 : 0;
+    if (days < 0) days = 0;
+
+    const gross = rate * days;
+    const buffer = rate * bufW * 7;
+    const subtotal = gross + buffer;
+
+    // read editable mix
+    const mix = {};
+    let mixTotal = 0;
+    SEL.present.forEach(sz => {
+      const el = document.getElementById('mix-' + cssId(sz));
+      const v = el ? (parseFloat(el.value) || 0) : (SEL.mix[sz] || 0);
+      mix[sz] = v; mixTotal += v;
+    });
+    const mixOk = Math.abs(mixTotal - 100) < 0.5;
+
+    // per-size raw, then integer-balance to subtotal
+    const raw = SEL.present.map(sz => ({ sz, units: subtotal * (mix[sz]||0) / 100 }));
+    const rounded = raw.map(x => ({ sz: x.sz, units: Math.floor(x.units), frac: x.units - Math.floor(x.units) }));
+    let allocated = rounded.reduce((a,x) => a + x.units, 0);
+    let remainder = Math.round(subtotal) - allocated;
+    rounded.sort((a,b) => b.frac - a.frac);
+    for (let i = 0; i < rounded.length && remainder > 0; i++) { rounded[i].units += 1; remainder--; }
+    const unitsBySize = {}; rounded.forEach(x => unitsBySize[x.sz] = x.units);
+
+    // netting
+    let totalSend = 0, totalForecast = 0, totalStock = 0;
+    const rows = SEL.present.map(sz => {
+      const f = unitsBySize[sz] || 0;
+      const stock = net ? (SEL.st.sizes[sz].on_hand || 0) : 0;
+      const send = net ? Math.max(0, f - stock) : f;
+      totalForecast += f; totalStock += (SEL.st.sizes[sz].on_hand || 0); totalSend += send;
+      return { sz, mix: mix[sz]||0, forecast: f, stock: (SEL.st.sizes[sz].on_hand||0), send };
+    });
+
+    const coverDays = rate > 0 ? Math.round(totalSend / rate) : 0;
+
+    document.getElementById('p-results').innerHTML = `
+      <div class="kpis">
+        <div class="kpi"><div class="kpi-label">Window</div><div class="kpi-value">${fmtN(days)}<span style="font-size:14px;color:var(--text-dim);"> days</span></div><div class="kpi-sub">${escapeHtml(sISO)} → ${escapeHtml(eISO)}</div></div>
+        <div class="kpi"><div class="kpi-label">Plan rate</div><div class="kpi-value">${fmt1(rate)}<span style="font-size:14px;color:var(--text-dim);">/day</span></div>${growth ? `<div class="kpi-sub">${fmt1(baseRate)} base · ${growth>=0?'+':''}${fmt1(growth)}% YoY</div>` : ''}</div>
+        <div class="kpi"><div class="kpi-label">Demand</div><div class="kpi-value">${fmtN(gross)}</div><div class="kpi-sub">rate × ${fmtN(days)} days</div></div>
+        <div class="kpi"><div class="kpi-label">Buffer</div><div class="kpi-value">${fmtN(buffer)}</div><div class="kpi-sub">${fmtN(bufW)} wk safety</div></div>
+        ${net ? `<div class="kpi"><div class="kpi-label">Current FBA stock</div><div class="kpi-value">${fmtN(totalStock)}</div><div class="kpi-sub">subtracted</div></div>` : ''}
+        <div class="kpi"><div class="kpi-label">${net ? 'Units to send' : 'Total units'}</div><div class="kpi-value accent">${fmtN(totalSend)}</div><div class="kpi-sub">~${fmtN(coverDays)} days of cover</div></div>
+      </div>
+
+      <div class="panel" style="padding:0;">
+        <div style="padding:14px 18px 0;">
+          <div class="panel-title" style="margin-bottom:6px;">3 · By size</div>
+          <div class="info-line" style="margin-top:0;">
+            Mix prefilled from actual ${escapeHtml(SEL.mixBasisLabel)} sales — edit any cell if a size was out of stock and got under-counted.
+            <button class="btn sm ghost" onclick="resetMix()">↺ reset to actual</button>
+            <span style="margin-left:8px;" class="${mixOk ? '' : 'warn'}">mix total: ${fmt1(mixTotal)}%${mixOk ? '' : ' (should be 100%)'}</span>
+          </div>
+        </div>
+        <div class="table-wrap" style="border:none;border-radius:0;margin-top:10px;">
+          <table>
+            <thead><tr>
+              <th>Size</th><th class="r">Mix %</th><th class="r">Forecast units</th>
+              ${net ? '<th class="r">In FBA now</th><th class="r">To send</th>' : ''}
+            </tr></thead>
+            <tbody>
+              ${rows.map(row => `
+                <tr>
+                  <td><b>${escapeHtml(row.sz)}</b></td>
+                  <td class="r"><input class="mix-input ${mixOk ? '' : 'mix-bad'}" id="mix-${cssId(row.sz)}" type="number" min="0" step="0.1" value="${Math.round(row.mix*100)/100}" oninput="recompute()"></td>
+                  <td class="r">${fmtN(row.forecast)}</td>
+                  ${net ? `<td class="r" style="color:var(--text-dim);">${fmtN(row.stock)}</td><td class="r"><b>${fmtN(row.send)}</b></td>` : ''}
+                </tr>`).join('')}
+            </tbody>
+            <tfoot><tr>
+              <td>Total</td><td class="r">${fmt1(mixTotal)}%</td><td class="r">${fmtN(totalForecast)}</td>
+              ${net ? `<td class="r">${fmtN(totalStock)}</td><td class="r">${fmtN(totalSend)}</td>` : ''}
+            </tr></tfoot>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  function resetMix() {
+    if (!SEL) return;
+    SEL.present.forEach(sz => { const el = document.getElementById('mix-' + cssId(sz)); if (el) el.value = Math.round((SEL.mix[sz]||0)*100)/100; });
+    recompute();
+  }
+  // ============================================================================
+  // Export — all styles for the current window (dependency-free CSV).
+  // Mirrors the per-style math in onStyle()/recompute(), so the file matches
+  // what you'd see clicking each style without hand-editing the rate or mix.
+  // ============================================================================
+  function csvCell(v) {
+    if (v == null) v = '';
+    v = String(v);
+    if (/[",\n]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
+    return v;
+  }
+
+  function styleDefaults(st) {
+    const sizes = Object.values(st.sizes);
+    const sum = k => sizes.reduce((a, s) => a + (s[k] || 0), 0);
+    const baseIS = sum('isRate30'), recentIS = sum('isRate7');
+    const rates = { t7: sum('u7')/7, t30: sum('u30')/30, t60: sum('u60')/60, instock: baseIS, smart: smartFrom(baseIS, recentIS) };
+    const defaultRate = (rates.smart || rates.instock || rates.t30 || rates.t7 || 0);
+    const order = sizeOrderFor(st.type);
+    const present = Object.keys(st.sizes).sort((a, b) => {
+      const ra = order.indexOf(a), rb = order.indexOf(b);
+      return (ra === -1 ? 999 : ra) - (rb === -1 ? 999 : rb);
+    });
+    let mb = null;
+    for (const k of ['u30','u60','u90','u7']) { if (sizes.reduce((a,s)=>a+(s[k]||0),0) > 0) { mb = k; break; } }
+    const mix = {};
+    if (mb) { const tot = sizes.reduce((a,s)=>a+(s[mb]||0),0); present.forEach(sz => mix[sz] = (st.sizes[sz][mb]||0)/tot*100); }
+    else present.forEach(sz => mix[sz] = 100/present.length);
+    return { present, defaultRate, mix };
+  }
+
+  function exportAll() {
+    const sISO = document.getElementById('p-start').value;
+    const eISO = document.getElementById('p-end').value;
+    const sD = parseISO(sISO), eD = parseISO(eISO);
+    let days = (sD && eD) ? daysBetween(sD, eD) + 1 : 0;
+    if (days <= 0) { alert('Set a valid window (start and end dates) before exporting.'); return; }
+    const growth = parseFloat(document.getElementById('exp-growth').value) || 0;
+    const bufW   = parseFloat(document.getElementById('exp-buffer').value) || 0;
+
+    const header = ['Category','Style','Product Name','Type','Size','Mix %','Plan Rate/day','YoY Growth %','Buffer (wk)','Window Start','Window End','Window Days','Forecast Units','In FBA Now','Net To Send','Style Total Forecast','Style Total In FBA','Style Total To Send'];
+    const lines = [header.map(csvCell).join(',')];
+
+    const styleList = Object.values(STYLES).sort((a, b) => (a.group + a.style).localeCompare(b.group + b.style));
+    for (const st of styleList) {
+      const d = styleDefaults(st);
+      const base = Math.round(d.defaultRate * 10) / 10;   // match the rounded rate shown in the UI
+      const rate = base * (1 + growth/100);
+      const subtotal = rate * days + rate * bufW * 7;
+      const rounded = d.present.map(sz => {
+        const u = subtotal * (d.mix[sz]||0) / 100;
+        return { sz, units: Math.floor(u), frac: u - Math.floor(u) };
+      });
+      let remainder = Math.round(subtotal) - rounded.reduce((a,x)=>a+x.units,0);
+      rounded.sort((a,b)=>b.frac-a.frac);
+      for (let i = 0; i < rounded.length && remainder > 0; i++) { rounded[i].units += 1; remainder--; }
+      const unitsBySize = {}; rounded.forEach(x => unitsBySize[x.sz] = x.units);
+
+      let stF = 0, stStock = 0, stSend = 0;
+      const sizeRows = d.present.map(sz => {
+        const f = unitsBySize[sz] || 0;
+        const stock = st.sizes[sz].on_hand || 0;
+        const send = Math.max(0, f - stock);
+        stF += f; stStock += stock; stSend += send;
+        return { sz, mix: d.mix[sz]||0, f, stock, send };
+      });
+      for (const row of sizeRows) {
+        lines.push([
+          st.group, st.style, st.name, st.type, row.sz,
+          Math.round(row.mix*100)/100, Math.round(rate*10)/10, growth, bufW,
+          sISO, eISO, days, row.f, row.stock, row.send, stF, stStock, stSend
+        ].map(csvCell).join(','));
+      }
+    }
+
+    const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Burlebo_Demand_Plan_${sISO}_to_${eISO}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function cssId(sz) { return String(sz).replace(/[^a-zA-Z0-9]/g, '_'); }
+</script>
+</body>
+</html>

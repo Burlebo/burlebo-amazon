@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FBA Lookout — Burlebo Analytics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="/auth.js"></script>
+<style>
+  :root {
+    --bg: #0d0f12; --panel: #14171c; --panel-2: #1a1e25;
+    --border: #252a33; --text: #e8eaed; --text-dim: #8a92a0;
+    --accent: #ff6b35; --green: #4ade80; --red: #f87171; --yellow: #fbbf24; --blue: #38bdf8; --purple: #a78bfa;
+    --radius: 10px; --radius-sm: 6px;
+    --coy: #ff6b35;      --coy-bg: rgba(255, 107, 53, 0.15);
+    --designer: #a78bfa; --designer-bg: rgba(167, 139, 250, 0.15);
+    --admin: #4ade80;    --admin-bg: rgba(74, 222, 128, 0.15);
+    --employee: #38bdf8; --employee-bg: rgba(56, 189, 248, 0.15);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'DM Sans', system-ui, sans-serif; }
+  header { border-bottom: 1px solid var(--border); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; background: var(--panel); }
+  header h1 { font-size: 18px; font-weight: 700; margin: 0; }
+  header nav { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  header nav a { color: var(--text-dim); text-decoration: none; font-size: 14px; font-weight: 500; }
+  header nav a:hover { color: var(--text); }
+  header nav a.active { color: var(--accent); }
+  .role-pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .role-pill:hover { opacity: 0.85; }
+  .role-pill.coy { background: var(--coy-bg); color: var(--coy); }
+  .role-pill.designer { background: var(--designer-bg); color: var(--designer); }
+  .role-pill.admin { background: var(--admin-bg); color: var(--admin); }
+  .role-pill.employee { background: var(--employee-bg); color: var(--employee); }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 28px 32px; }
+  main.hidden { display: none; }
+  .page-title { font-size: 28px; font-weight: 700; margin: 0 0 4px 0; }
+  .page-sub { font-size: 14px; color: var(--text-dim); margin: 0 0 24px 0; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 20px; }
+  .ctrl-label { font-size: 12px; color: var(--text-dim); font-weight: 500; }
+  .btn { padding: 7px 14px; border-radius: var(--radius-sm); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); }
+  .btn:hover { background: #1f242c; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.primary:hover { opacity: 0.92; }
+  .btn.ghost { background: transparent; color: var(--text-dim); }
+  .btn.ghost:hover { color: var(--text); }
+
+  .kpi-row-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; }
+  @media (max-width: 700px) { .kpi-row-2 { grid-template-columns: 1fr; } }
+  .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; position: relative; overflow: hidden; }
+  .kpi::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+  .kpi.orange::before { background: var(--accent); }
+  .kpi.blue::before { background: var(--blue); }
+  .kpi-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .kpi-value { font-size: 26px; font-weight: 700; line-height: 1.1; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .section-hdr { display: flex; align-items: center; justify-content: space-between; margin: 16px 0 8px; gap: 12px; flex-wrap: wrap; }
+  .section-title { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
+  .section-sub { font-size: 12px; color: var(--text-dim); }
+
+  .table-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead tr { background: var(--panel-2); }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--text-dim); font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; }
+  td.r, th.r { text-align: right; }
+  td.mono { font-family: 'SF Mono', Menlo, monospace; font-size: 12px; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+  .group-spacer td { background: var(--bg); padding: 4px 0; border: none; }
+  .group-hdr td { background: var(--panel-2); font-size: 11px; color: var(--text-dim); font-weight: 600; padding: 6px 12px; }
+  .group-hdr td .btn { font-size: 11px; padding: 3px 9px; float: right; }
+  tr.picked td { background: rgba(255,107,53,0.07); }
+  td.chk { width: 30px; padding-right: 0; }
+  td.chk input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+  .qty { width: 72px; padding: 5px 7px; text-align: right; font-family: inherit; font-size: 13px; font-weight: 700;
+         background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+  .qty:focus { outline: none; border-color: var(--accent); }
+  .qty.over { border-color: var(--red); color: var(--red); }
+  .x { background: none; border: 0; color: var(--text-dim); cursor: pointer; font-size: 15px; padding: 0 4px; }
+  .x:hover { color: var(--red); }
+  .ship-empty { padding: 34px 16px; text-align: center; color: var(--text-dim); font-size: 13px; line-height: 1.5; }
+  .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn-row .btn { font-size: 12px; padding: 5px 10px; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .ship-note { font-size: 12px; color: var(--text-dim); padding: 8px 12px; border-top: 1px solid var(--border); }
+  .ship-note.warn { color: var(--red); }
+
+  .empty { text-align: center; padding: 60px 20px; color: var(--text-dim); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+  .empty-icon { font-size: 36px; margin-bottom: 8px; }
+  .empty-title { font-size: 15px; margin-bottom: 4px; color: var(--text); }
+  .empty-sub { font-size: 13px; max-width: 480px; margin: 0 auto; line-height: 1.5; }
+  .loading { color: var(--text-dim); font-size: 14px; padding: 40px 0; text-align: center; }
+
+  /* Role modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  .modal-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; width: 380px; max-width: calc(100vw - 32px); }
+  .modal-title { font-size: 18px; font-weight: 700; margin: 0 0 6px 0; }
+  .modal-sub { font-size: 13px; color: var(--text-dim); margin: 0 0 20px 0; }
+  .modal-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .modal-option { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 13px 14px; border-radius: var(--radius-sm); font-family: inherit; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+  .modal-option:hover { background: #1f242c; border-color: #2f3540; }
+  .modal-option .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .modal-option .dot.coy { background: var(--coy); }
+  .modal-option .dot.designer { background: var(--designer); }
+  .modal-option .dot.admin { background: var(--admin); }
+  .modal-option .dot.employee { background: var(--employee); }
+  .pw-field { display: none; margin-top: 8px; }
+  .pw-field input { width: 100%; padding: 11px 12px; font-family: 'DM Sans', sans-serif; font-size: 14px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); outline: none; margin-bottom: 8px; }
+  .pw-field input:focus { border-color: var(--accent); }
+  .pw-error { display: none; font-size: 12px; color: var(--red); margin-bottom: 8px; }
+  .pw-row { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+
+<!-- Role modal -->
+
+<header id="app-header" style="display:none;">
+  <h1>Burlebo Analytics</h1>
+  <nav id="main-nav">
+    <span class="role-pill" id="role-pill"></span>
+  </nav>
+</header>
+
+<main id="app-main" class="hidden">
+  <div class="page-title">FBA Lookout</div>
+  <div class="page-sub">Non-FBA styles already selling well enough — and with enough HQ stock — to launch on FBA. Pick SKUs from Recommended to build a shipment. Counts US and Canada FBM sales.</div>
+
+  <div class="controls">
+    <button class="btn primary" onclick="loadLookout()">🔄 Run Lookout</button>
+    <span class="ctrl-label" id="lookout-run-date"></span>
+  </div>
+
+  <div id="lookout-content">
+    <div class="empty"><div class="empty-icon">🔥</div><div class="empty-title">Click Run Lookout to find launch candidates</div></div>
+  </div>
+</main>
+
+<script>
+  // ============================================================================
+  // Shared nav loader
+  // ============================================================================
+  async function loadSharedNav() {
+    try {
+      const r = await fetch('/nav.html', { cache: 'no-cache' });
+      if (!r.ok) return;
+      const html = await r.text();
+      const nav = document.getElementById('main-nav');
+      const pill = document.getElementById('role-pill');
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const here = window.location.pathname.replace(/\/$/, '') || '/';
+      for (const a of tmp.querySelectorAll('a')) {
+        const href = a.getAttribute('href');
+        if (href === here || (href === '/' && here === '/')) a.classList.add('active');
+        nav.insertBefore(a, pill);
+      }
+    } catch (err) {
+      console.error('Nav load failed:', err);
+    }
+  }
+
+  // ============================================================================
+  // Supabase + auth
+  // ============================================================================
+  const SUPABASE_URL = 'https://uoetojuyzyngfopsmmxk.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvZXRvanV5enluZ2ZvcHNtbXhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzODY3ODIsImV4cCI6MjA5NDk2Mjc4Mn0.FVhs_0waTWIYkTVY2j4HERhlovggIFau07RuBu69M8E';
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+
+  window.onAuthReady = function (r) {
+    loadSharedNav();
+    loadLookout();
+  };
+
+  // ============================================================================
+  // Helpers (UTC-safe)
+  // ============================================================================
+  function toISO(d) { return d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0'); }
+  function parseISO(s) {
+    if (!s) return null;
+    const parts = String(s).slice(0,10).split('-').map(n => parseInt(n,10));
+    if (parts.length !== 3 || parts.some(isNaN)) return null;
+    return new Date(Date.UTC(parts[0], parts[1]-1, parts[2]));
+  }
+  function daysBetween(a, b) { return Math.round((b.getTime() - a.getTime()) / 86400000); }
+  function fmtN(n) { if (n==null) return '—'; return Math.round(n).toLocaleString(); }
+  function formatLongDate(iso) {
+    const d = parseISO(iso);
+    if (!d) return iso;
+    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  }
+
+  // ============================================================================
+  // SKU helpers (mirroring fba_inventory_processor.py)
+  // ============================================================================
+  const MENS_SIZES  = ["S", "M", "L", "XL", "XXL"];
+  const YOUTH_SIZES = ["2T", "3T", "4T", "XS", "S", "M", "L", "XL"];
+  const BABY_SIZES  = ["NB", "0/3", "3/6", "6/12", "12/18"];
+  const ONE_SIZE_PREFIXES = ["BP-", "C-", "DB-"];
+
+  // Thresholds from fba_lookout.py
+  const MIN_7D = 3;
+  const MIN_30D = 10;
+  const MIN_SHIP_IF_7D_ZERO = 6;
+  const MIN_TOTAL_PER_SIZE = 50;
+
+  function stripFba(sku) {
+    const s = String(sku || '').toUpperCase().trim();
+    if (s.startsWith('FBA2-')) return s.slice(5);
+    if (s.startsWith('FBA-'))  return s.slice(4);
+    return s;
+  }
+  function isYouth(sku) { return stripFba(sku).startsWith('Y-'); }
+  function isBaby(sku)  { return stripFba(sku).startsWith('BZU-'); }
+  function isOneSize(sku) {
+    const s = stripFba(sku);
+    return ONE_SIZE_PREFIXES.some(p => s.startsWith(p));
+  }
+  function baseStyle(sku) {
+    const s = stripFba(sku);
+    if (isOneSize(sku)) return s;
+    const idx = s.lastIndexOf('-');
+    return idx !== -1 ? s.slice(0, idx) : s;
+  }
+
+  function expandFamily(sku) {
+    const s = stripFba(sku);
+    if (isOneSize(sku)) return [s];
+    const style = baseStyle(sku);
+    if (isBaby(sku))  return BABY_SIZES.map(sz => `${style}-${sz}`);
+    if (isYouth(sku)) return YOUTH_SIZES.map(sz => `${style}-${sz}`);
+    return MENS_SIZES.map(sz => `${style}-${sz}`);
+  }
+
+  // ============================================================================
+  // Lookout calculator — port of fba_lookout.py
+  // ============================================================================
+  function buildLookout(fbaRows, blbInventoryByShopifySku, salesWindow, latestSalesISO) {
+    const latestDate = latestSalesISO ? parseISO(latestSalesISO) : null;
+    if (!latestDate) return { rows: [], shipment_list: [], total_units: 0 };
+
+    // Aggregate non-FBA sales by SKU with 7/30/60 day windows
+    const skuAgg = new Map(); // sku -> {u7, u30, u60}
+    for (const r of salesWindow) {
+      if (r.is_fba) continue;
+      const sku = String(r.sku || '').toUpperCase();
+      if (!sku) continue;
+      const dateStr = (r.date instanceof Date) ? toISO(r.date) : String(r.date).slice(0, 10);
+      const d = parseISO(dateStr);
+      if (!d) continue;
+      const diff = daysBetween(d, latestDate);
+      let v = skuAgg.get(sku);
+      if (!v) { v = { u7: 0, u30: 0, u60: 0 }; skuAgg.set(sku, v); }
+      if (diff <= 6)  v.u7  += r.units || 0;
+      if (diff <= 29) v.u30 += r.units || 0;
+      if (diff <= 59) v.u60 += r.units || 0;
+    }
+
+    // Build the set of SKUs already in FBA (cleaned form)
+    const fbaSkuSet = new Set();
+    for (const row of fbaRows) {
+      const raw = String(row.raw_sku || '').toUpperCase();
+      if (raw.startsWith('FBA-') || raw.startsWith('FBA2-')) {
+        fbaSkuSet.add(String(row.sku || '').toUpperCase());
+      }
+    }
+
+    // Trigger SKUs
+    const triggers = [];
+    for (const [sku, agg] of skuAgg.entries()) {
+      if (agg.u7 >= MIN_7D && agg.u30 >= MIN_30D) triggers.push(sku);
+    }
+
+    // For each trigger, expand family and check filters
+    const familyMap = new Map(); // style_key -> [skus...]
+    for (const trigger of triggers) {
+      const family = expandFamily(trigger);
+      if (!family.length) continue;
+
+      // Skip if any family member is already in FBA
+      const anyInFba = family.some(s => fbaSkuSet.has(s));
+      if (anyInFba) continue;
+
+      // Every size must have ≥ MIN_TOTAL_PER_SIZE at HQ
+      const allInStock = family.every(s => {
+        const stock = blbInventoryByShopifySku.get(s) || 0;
+        return stock >= MIN_TOTAL_PER_SIZE;
+      });
+      if (!allInStock) continue;
+
+      const styleKey = baseStyle(trigger);
+      if (!familyMap.has(styleKey)) familyMap.set(styleKey, family);
+    }
+
+    if (familyMap.size === 0) return { rows: [], shipment_list: [], total_units: 0, run_date: latestSalesISO };
+
+    // Build output
+    const rows = [];
+    const shipmentList = [];
+    let totalUnits = 0;
+
+    for (const styleKey of [...familyMap.keys()].sort()) {
+      const familySkus = familyMap.get(styleKey);
+      for (const shopifySku of familySkus) {
+        const agg = skuAgg.get(shopifySku) || { u7: 0, u30: 0, u60: 0 };
+        let needed = Math.max(agg.u60, MIN_SHIP_IF_7D_ZERO);
+        if (needed < MIN_SHIP_IF_7D_ZERO) needed = MIN_SHIP_IF_7D_ZERO;
+        const blbStock = blbInventoryByShopifySku.get(shopifySku) || 0;
+
+        rows.push({
+          shopify_sku: shopifySku,
+          style_key: styleKey,
+          u7: agg.u7, u30: agg.u30, u60: agg.u60,
+          recommended: needed,
+          blb_available: blbStock,
+        });
+        shipmentList.push({
+          amazon_sku: `FBA-${shopifySku}`,
+          shopify_sku: shopifySku,
+          units: needed,
+        });
+        totalUnits += needed;
+      }
+    }
+
+    return {
+      rows, shipment_list: shipmentList, total_units: totalUnits,
+      run_date: latestSalesISO,
+      family_count: familyMap.size,
+    };
+  }
+
+  // ============================================================================
+  // Data load
+  // ============================================================================
+  async function fetchPaged(table, columns, filters = []) {
+    const all = [];
+    let from = 0;
+    const page = 1000;
+    while (true) {
+      let q = sb.from(table).select(columns);
+      for (const [k, op, v] of filters) q = q[op](k, v);
+      q = q.order('id', { ascending: true }).range(from, from + page - 1);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      if (!data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < page) break;
+      from += page;
+    }
+    return all;
+  }
+
+  async function loadLookout() {
+    document.getElementById('lookout-content').innerHTML = '<div class="loading">Running lookout — checking sales velocity, FBA presence, HQ stock…</div>';
+
+    try {
+      // Latest sales date
+      const { data: latestSales } = await sb.from('mp_sales_daily').select('date').eq('marketplace', 'US').order('date', { ascending: false }).limit(1);
+      const latestSalesDate = (latestSales && latestSales[0])
+        ? ((latestSales[0].date instanceof Date) ? toISO(latestSales[0].date) : String(latestSales[0].date).slice(0,10))
+        : null;
+      if (!latestSalesDate) {
+        document.getElementById('lookout-content').innerHTML = '<div class="empty"><div class="empty-icon">📭</div><div class="empty-title">No sales data uploaded yet</div><div class="empty-sub">Upload at least 30 days of sales for the lookout to find candidates.</div></div>';
+        return;
+      }
+
+      // Last 60 days of sales (covers u7, u30, u60 windows)
+      const startDate = parseISO(latestSalesDate);
+      startDate.setUTCDate(startDate.getUTCDate() - 59);
+      const startStr = toISO(startDate);
+
+      const [salesWindow, fba, blb] = await Promise.all([
+        // US + Canada: Canada FBM orders are the same SKUs shipped from the same HQ stock.
+        fetchPaged('mp_sales_daily', 'date, sku, units, is_fba',
+          [['marketplace', 'in', ['US', 'CA']], ['date', 'gte', startStr], ['date', 'lte', latestSalesDate]]),
+        fetchPaged('mp_fba_inventory_snapshot', 'sku, raw_sku', [['marketplace', 'eq', 'US']]),
+        fetchPaged('blb_inventory_snapshot', 'sku, channel, location, on_hand_avail',
+          [['location', 'eq', 'HQ']]),
+      ]);
+
+      // Build BLB index: shopifySku -> total HQ stock (ecom + wholesale)
+      const blbIndex = new Map();
+      const blbByChannel = new Map(); // sku -> { ecom, wholesale } for the transfer file
+      for (const r of blb) {
+        const ch = String(r.channel || '').toLowerCase();
+        if (ch !== 'ecommerce' && ch !== 'wholesale') continue;
+        const sku = String(r.sku || '').toUpperCase();
+        if (!sku) continue;
+        blbIndex.set(sku, (blbIndex.get(sku) || 0) + (r.on_hand_avail || 0));
+        const c = blbByChannel.get(sku) || { ecom: 0, wholesale: 0 };
+        if (ch === 'ecommerce') c.ecom += r.on_hand_avail || 0; else c.wholesale += r.on_hand_avail || 0;
+        blbByChannel.set(sku, c);
+      }
+
+      const result = buildLookout(fba, blbIndex, salesWindow, latestSalesDate);
+      for (const r of result.rows || []) {
+        const c = blbByChannel.get(r.shopify_sku) || { ecom: 0, wholesale: 0 };
+        r.blb_ecom = c.ecom; r.blb_wholesale = c.wholesale;
+      }
+      window._lookoutData = result;
+      renderLookout();
+    } catch (err) {
+      document.getElementById('lookout-content').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error</div><div class="empty-sub">${err.message}</div></div>`;
+    }
+  }
+
+  // ============================================================================
+  // Amazon SKU — same rule as the FBA Shipment page (shipment.html).
+  // Lookout SKUs are never in FBA yet, so there is no raw_sku; overrides cover
+  // SKUs Amazon forced onto a fresh FBA2- listing. Keep in sync with shipment.html.
+  // ============================================================================
+  const AMZ_SKU_OVERRIDES = {
+    'ES-RRG-CDC-S':   'FBA2-ES-RRG-CDC-S',
+    'ES-RRG-CDC-XXL': 'FBA2-ES-RRG-CDC-XXL',
+  };
+  function amazonSku(shopifySku) {
+    const shop = String(shopifySku || '').toUpperCase().trim();
+    return AMZ_SKU_OVERRIDES[shop] || ('FBA-' + shop);
+  }
+
+  // Transfer math, copied from shipment.html so both pages agree.
+  const ECOM_POST_SHIPMENT_TARGET_PCT = 0.40;
+  function calcTransfer(ecom, wholesale, unitsToShip) {
+    if (ecom >= unitsToShip) return 0;
+    if (unitsToShip <= 0) return 0;
+    const totalBefore = ecom + wholesale;
+    const remaining = totalBefore - unitsToShip;
+    if (remaining <= 0) return Math.min(wholesale, Math.max(0, unitsToShip - ecom));
+    const targetEcomAfter = Math.round(remaining * ECOM_POST_SHIPMENT_TARGET_PCT);
+    const targetEcomBefore = targetEcomAfter + unitsToShip;
+    let transfer = Math.max(0, targetEcomBefore - ecom);
+    transfer = Math.max(transfer, unitsToShip - ecom);
+    transfer = Math.min(transfer, wholesale);
+    return transfer;
+  }
+
+  // ============================================================================
+  // Shipment builder state
+  // Picked SKUs live here (shopify_sku -> units). Survives a re-run of the
+  // lookout for any SKU that is still recommended.
+  // ============================================================================
+  window._picked = window._picked || new Map();
+
+  function rowFor(sku) { return (window._lookoutData.rows || []).find(r => r.shopify_sku === sku); }
+  function pickedRows() {
+    // Shipment list follows the recommendation order, not click order.
+    return (window._lookoutData.rows || []).filter(r => window._picked.has(r.shopify_sku));
+  }
+  function totalPicked() {
+    let t = 0; for (const v of window._picked.values()) t += (parseInt(v, 10) || 0); return t;
+  }
+
+  function togglePick(sku, on) {
+    const r = rowFor(sku); if (!r) return;
+    if (on) window._picked.set(sku, r.recommended);
+    else window._picked.delete(sku);
+    renderLookout();
+  }
+  function pickFamily(styleKey) {
+    const fam = window._lookoutData.rows.filter(r => r.style_key === styleKey);
+    const allIn = fam.every(r => window._picked.has(r.shopify_sku));
+    for (const r of fam) {
+      if (allIn) window._picked.delete(r.shopify_sku);
+      else if (!window._picked.has(r.shopify_sku)) window._picked.set(r.shopify_sku, r.recommended);
+    }
+    renderLookout();
+  }
+  function pickAll() {
+    for (const r of window._lookoutData.rows) if (!window._picked.has(r.shopify_sku)) window._picked.set(r.shopify_sku, r.recommended);
+    renderLookout();
+  }
+  function clearPicked() {
+    if (window._picked.size && !confirm('Remove every SKU from this shipment?')) return;
+    window._picked.clear();
+    renderLookout();
+  }
+  function resetQty(sku) {
+    const r = rowFor(sku); if (!r) return;
+    window._picked.set(sku, r.recommended);
+    renderLookout();
+  }
+  function setQty(sku, val, el) {
+    const n = Math.max(0, parseInt(val, 10) || 0);
+    window._picked.set(sku, n);
+    const r = rowFor(sku);
+    if (el) el.classList.toggle('over', r && n > r.blb_available);
+    updateShipFooter();
+  }
+  function updateShipFooter() {
+    const total = totalPicked();
+    const k = document.getElementById('ship-total-kpi'); if (k) k.textContent = fmtN(total);
+    const t = document.getElementById('ship-total-row'); if (t) t.textContent = fmtN(total);
+    const rows = pickedRows();
+    const over = rows.filter(r => (parseInt(window._picked.get(r.shopify_sku), 10) || 0) > r.blb_available).length;
+    const zero = rows.filter(r => (parseInt(window._picked.get(r.shopify_sku), 10) || 0) <= 0).length;
+    const note = document.getElementById('ship-note');
+    if (note) {
+      const parts = [];
+      if (over) parts.push(`${over} SKU${over === 1 ? '' : 's'} above HQ stock`);
+      if (zero) parts.push(`${zero} at 0 units will be left out of the export`);
+      note.textContent = parts.length ? parts.join(' · ') : 'Quantities start at the recommended amount. Edit any of them before exporting.';
+      note.classList.toggle('warn', over > 0);
+    }
+    const hasUnits = rows.some(r => (parseInt(window._picked.get(r.shopify_sku), 10) || 0) > 0);
+    ['btn-export', 'btn-transfer'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = !hasUnits; });
+  }
+
+  // ============================================================================
+  // Render
+  // ============================================================================
+  function renderLookout() {
+    const d = window._lookoutData;
+    if (!d) return;
+
+    document.getElementById('lookout-run-date').textContent = d.run_date ? `Based on sales through: ${formatLongDate(d.run_date)}` : '';
+
+    if (!d.rows || d.rows.length === 0) {
+      document.getElementById('lookout-content').innerHTML = `
+        <div class="empty">
+          <div class="empty-icon">🔥</div>
+          <div class="empty-title">No products flagged for FBA</div>
+          <div class="empty-sub">A style qualifies when it has 3+ units sold in 7 days, 10+ in 30 days,
+            is <em>not</em> already in FBA, and has 50+ units per size at HQ.</div>
+        </div>`;
+      return;
+    }
+
+    // Drop picks that are no longer recommended after a re-run.
+    for (const sku of [...window._picked.keys()]) if (!rowFor(sku)) window._picked.delete(sku);
+
+    let html = '<div class="kpi-row-2">';
+    html += `<div class="kpi orange"><div class="kpi-label">Units in This Shipment</div><div class="kpi-value" id="ship-total-kpi">${fmtN(totalPicked())}</div></div>`;
+    html += `<div class="kpi blue"><div class="kpi-label">SKU Families Flagged</div><div class="kpi-value">${fmtN(d.family_count || 0)} <span style="font-size:13px;color:var(--text-dim);font-weight:500;">· ${fmtN(d.total_units)} units recommended</span></div></div>`;
+    html += '</div>';
+
+    html += '<div class="grid-2">';
+
+    // Left — shipment being built
+    const picked = pickedRows();
+    html += '<div>';
+    html += `<div class="section-hdr"><div class="section-title">Shipment (${picked.length} SKU${picked.length === 1 ? '' : 's'})</div>
+      <div class="btn-row">
+        <button class="btn ghost" onclick="clearPicked()" ${picked.length ? '' : 'disabled'}>Clear</button>
+        <button class="btn" id="btn-transfer" onclick="exportTransfer()">⬇️ Export Transfer</button>
+        <button class="btn primary" id="btn-export" onclick="exportShipment()">⬇️ Export XLSX</button>
+      </div></div>`;
+    html += '<div class="table-wrap">';
+    if (!picked.length) {
+      html += '<div class="ship-empty">No SKUs added yet.<br>Tick SKUs in Recommended, or use “Add family” to add every size of a style.</div>';
+    } else {
+      html += '<table><thead><tr><th>Amazon SKU</th><th>Shopify SKU</th><th class="r">Rec.</th><th class="r">HQ Stock</th><th class="r">Units</th><th></th></tr></thead><tbody>';
+      let prev = null;
+      for (const r of picked) {
+        if (prev !== null && prev !== r.style_key) html += '<tr class="group-spacer"><td colspan="6"></td></tr>';
+        prev = r.style_key;
+        const u = parseInt(window._picked.get(r.shopify_sku), 10) || 0;
+        const sku = r.shopify_sku;
+        html += `<tr>
+          <td class="mono">${amazonSku(sku)}</td>
+          <td class="mono">${sku}</td>
+          <td class="r" style="color:var(--text-dim);cursor:pointer;" title="Reset to recommended" onclick="resetQty('${sku}')">${fmtN(r.recommended)}</td>
+          <td class="r">${fmtN(r.blb_available)}</td>
+          <td class="r"><input class="qty ${u > r.blb_available ? 'over' : ''}" type="number" min="0" step="1" value="${u}"
+                aria-label="Units for ${sku}" oninput="setQty('${sku}', this.value, this)"></td>
+          <td class="r"><button class="x" title="Remove" aria-label="Remove ${sku}" onclick="togglePick('${sku}', false)">×</button></td>
+        </tr>`;
+      }
+      html += `<tr><td colspan="4" style="font-weight:600;">Total units</td><td class="r" style="font-weight:700;" id="ship-total-row">${fmtN(totalPicked())}</td><td></td></tr>`;
+      html += '</tbody></table>';
+      html += '<div class="ship-note" id="ship-note"></div>';
+    }
+    html += '</div></div>';
+
+    // Right — recommendations to pick from
+    html += '<div>';
+    html += `<div class="section-hdr"><div class="section-title">Recommended</div>
+      <div class="btn-row"><button class="btn" onclick="pickAll()">Add all</button></div></div>`;
+    html += '<div class="table-wrap"><table><thead><tr>';
+    html += '<th></th><th>Shopify SKU</th><th class="r">7D</th><th class="r">30D</th><th class="r">60D</th><th class="r">Send</th><th class="r">HQ Stock</th>';
+    html += '</tr></thead><tbody>';
+
+    let prevStyle = null;
+    for (const r of d.rows) {
+      if (prevStyle !== r.style_key) {
+        const fam = d.rows.filter(x => x.style_key === r.style_key);
+        const allIn = fam.every(x => window._picked.has(x.shopify_sku));
+        html += `<tr class="group-hdr"><td colspan="7">${r.style_key}
+          <button class="btn" onclick="pickFamily('${r.style_key}')">${allIn ? 'Remove family' : 'Add family'}</button></td></tr>`;
+      }
+      prevStyle = r.style_key;
+      const on = window._picked.has(r.shopify_sku);
+      html += `<tr class="${on ? 'picked' : ''}">
+        <td class="chk"><input type="checkbox" ${on ? 'checked' : ''} aria-label="Add ${r.shopify_sku}"
+              onchange="togglePick('${r.shopify_sku}', this.checked)"></td>
+        <td class="mono">${r.shopify_sku}</td>
+        <td class="r">${fmtN(r.u7)}</td>
+        <td class="r">${fmtN(r.u30)}</td>
+        <td class="r">${fmtN(r.u60)}</td>
+        <td class="r" style="font-weight:700;color:var(--accent);">${fmtN(r.recommended)}</td>
+        <td class="r">${fmtN(r.blb_available)}</td>
+      </tr>`;
+    }
+    html += '</tbody></table></div></div>';
+
+    html += '</div>';
+    document.getElementById('lookout-content').innerHTML = html;
+    updateShipFooter();
+  }
+
+  // ============================================================================
+  // Export — identical layout to exportShipment() on the FBA Shipment page:
+  //
+  //   Row 1:  "WEEKLY FBA SHIPMENT"
+  //   Row 2:  "Shopify Customer: Amazon FBA"
+  //   Row 3:  blank
+  //   Row 4:  blank
+  //   Row 5:  Amazon SKU | Shopify SKU | Units Needed for 90 Day Supply
+  //   Row 6+: one row per picked SKU with units > 0
+  //
+  // Sheet "Current Shipment", column widths A=30, B=25, C=30,
+  // file FBA_Shipment_<date>.xlsx. Only the SKUs in the Shipment list export.
+  // ============================================================================
+  function exportShipment() {
+    const rows = pickedRows();
+    if (!rows.length) return;
+
+    const aoa = [
+      ['WEEKLY FBA SHIPMENT'],
+      ['Shopify Customer: Amazon FBA'],
+      [],
+      [],
+      ['Amazon SKU', 'Shopify SKU', 'Units Needed for 90 Day Supply'],
+    ];
+    let n = 0;
+    for (const r of rows) {
+      const units = parseInt(window._picked.get(r.shopify_sku), 10) || 0;
+      if (units <= 0) continue;
+      aoa.push([amazonSku(r.shopify_sku), r.shopify_sku, units]);
+      n++;
+    }
+    if (!n) { alert('Every SKU in the shipment is at 0 units — nothing to export.'); return; }
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 30 }, { wch: 25 }, { wch: 30 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Current Shipment');
+
+    const dateStr = window._lookoutData && window._lookoutData.run_date ? window._lookoutData.run_date : toISO(new Date());
+    XLSX.writeFile(wb, `FBA_Shipment_${dateStr}.xlsx`);
+  }
+
+  // Transfer file, same template as the FBA Shipment page:
+  //   Origin location,Destination location,Origin channel,Destination channel,sku,quantity
+  //   HQ,HQ,Wholesale,eCommerce,<shopify_sku>,<qty>
+  function exportTransfer() {
+    const rows = pickedRows();
+    if (!rows.length) return;
+    const lines = ['Origin location,Destination location,Origin channel,Destination channel,sku,quantity'];
+    for (const r of rows) {
+      const units = parseInt(window._picked.get(r.shopify_sku), 10) || 0;
+      const qty = calcTransfer(r.blb_ecom || 0, r.blb_wholesale || 0, units);
+      if (qty > 0) lines.push(`HQ,HQ,Wholesale,eCommerce,${r.shopify_sku},${qty}`);
+    }
+    if (lines.length === 1) { alert('No transfers needed — eCommerce stock already covers this shipment.'); return; }
+    const dateStr = window._lookoutData && window._lookoutData.run_date ? window._lookoutData.run_date : toISO(new Date());
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `FBA_Transfer_${dateStr}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+</script>
+
+</body>
+</html>
