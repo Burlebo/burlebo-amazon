@@ -321,6 +321,8 @@
     if (h.has('(parent) asin') && h.has('sessions - total') && h.has('ordered product sales')) return 'business';
     if (h.has('date range') && (h.has('advertised product sku') || h.has('advertised sku'))) return 'ads';
     if (h.has('inventory supply at fba') && h.has('total reserved quantity')) return 'fba';
+    // Manage FBA Inventory report (afn-* columns), which Amazon now gives in place of the planning report
+    if (h.has('sku') && h.has('afn-fulfillable-quantity') && h.has('afn-total-quantity')) return 'fba';
     if (h.has('channel') && h.has('location') && h.has('on hand available')) return 'blb';
     if (h.has('amazon sku') && h.has('shopify sku') && h.has('units needed for 90 day supply')) return 'shipment_sent';
     return null;
@@ -523,7 +525,8 @@
     },
 
     async fba() {
-      previewCard('Inventory Supply at FBA', `${esc(CUR.file.name)} · ${CUR.rows.length.toLocaleString()} SKUs. Replaces the current snapshot for the marketplace you pick.`,
+      const manage = !!colFinder(CUR.rows[0])('afn-fulfillable-quantity');
+      previewCard(manage ? 'FBA inventory (Manage FBA Inventory report)' : 'Inventory Supply at FBA', `${esc(CUR.file.name)} · ${CUR.rows.length.toLocaleString()} rows. Replaces the current snapshot for the marketplace you pick.${manage ? ' Only listings with FBA stock are kept, and when a plain SKU and its FBA- SKU report the same units, they are counted once.' : ''}`,
         `<div class="field"><label>Marketplace</label><select id="mp">${marketOptions(defaultMarket())}</select></div>`);
     },
 
@@ -882,7 +885,39 @@
       const f = colFinder(CUR.rows[0]);
       const get = (r, ...n) => { const k = f(...n); return k ? r[k] : ''; };
       const rows = []; let skipped = 0;
-      for (const r of CUR.rows) {
+      const manage = !!f('afn-fulfillable-quantity');
+      if (manage) {
+        // Manage FBA Inventory format. Mapped onto the same fields as the
+        // planning report: on_hand ("Inventory Supply at FBA") = units Amazon
+        // can sell now (fulfillable + FC transfer) + inbound.
+        const n = (r, c) => Math.round(parseNumber(get(r, c)));
+        const best = new Map();
+        for (const r of CUR.rows) {
+          const rawSku = String(get(r, 'sku') || '').trim();
+          if (!rawSku || String(get(r, 'afn-listing-exists')).toLowerCase() !== 'yes') { skipped++; continue; }
+          const inbound = n(r, 'afn-inbound-working-quantity') + n(r, 'afn-inbound-shipped-quantity') + n(r, 'afn-inbound-receiving-quantity');
+          const row = {
+            snapshot_date: today, sku: cleanSku(rawSku).sku, raw_sku: rawSku,
+            asin: get(r, 'asin'), product_name: get(r, 'product-name'),
+            available: n(r, 'afn-fulfillable-quantity'),
+            on_hand: n(r, 'afn-fulfillable-quantity') + n(r, 'afn-fc-transfer-quantity') + inbound,
+            reserved: n(r, 'afn-reserved-quantity'),
+            unfulfillable: n(r, 'afn-unsellable-quantity'),
+            inbound_total: inbound,
+            inbound_working: n(r, 'afn-inbound-working-quantity'),
+            inbound_shipped: n(r, 'afn-inbound-shipped-quantity'),
+            inbound_received: n(r, 'afn-inbound-receiving-quantity'),
+            days_of_supply: null,
+          };
+          // A plain SKU and its FBA- twin can report the same physical units;
+          // keep one per SKU, preferring the FBA- listing.
+          const prev = best.get(row.sku);
+          if (!prev || (/^FBA2?-/i.test(rawSku) && !/^FBA2?-/i.test(prev.raw_sku))) best.set(row.sku, row);
+          else skipped++;
+        }
+        rows.push(...best.values());
+      }
+      for (const r of (manage ? [] : CUR.rows)) {
         const rawSku = String(get(r, 'sku') || '').trim();
         if (!rawSku) { skipped++; continue; }
         rows.push({
@@ -910,7 +945,7 @@
         await sb.from('uploads').update({ status: 'done', row_count: rows.length }).eq('id', legacyId);
       }
       await finishUploadLog(upId, rows.length);
-      return `✓ Saved ${rows.length.toLocaleString()} SKUs for ${m.flag} ${esc(m.name)}.` + (mk === 'US' ? ' The original dashboard pages were updated too.' : '') + (skipped ? ` Skipped ${skipped} rows with no SKU.` : '');
+      return `✓ Saved ${rows.length.toLocaleString()} SKUs for ${m.flag} ${esc(m.name)}.` + (mk === 'US' ? ' The original dashboard pages were updated too.' : '') + (skipped ? ` Skipped ${skipped} rows (no SKU, no FBA listing, or a plain SKU duplicating its FBA- listing).` : '');
     },
 
     // ---------------- BURLEBO inventory (marketplace-neutral, original table) ----------------
