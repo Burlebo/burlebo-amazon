@@ -60,7 +60,16 @@
     })).sort((a, b) => b.prefix.length - a.prefix.length);
     FEES = {};
     for (const r of (f.data || [])) FEES[`${r.group_id}|${r.marketplace}`] = r;
+    // Liquidation rows in the transaction report carry the ASIN instead of the
+    // SKU; map ASINs back to SKUs from the FBA inventory snapshots.
+    ASIN_MAP = new Map();
+    try {
+      for (const r of await fetchPaged(() => sb.from('mp_fba_inventory_snapshot').select('id, asin, sku').not('asin', 'is', null)))
+        if (r.asin && r.sku && !ASIN_MAP.has(r.asin.toUpperCase())) ASIN_MAP.set(r.asin.toUpperCase(), r.sku);
+    } catch (e) { console.warn('ASIN map not loaded:', e.message); }
   }
+  let ASIN_MAP = new Map();
+  const isAsin = v => /^B0[A-Z0-9]{8}$/i.test(String(v || ''));
   function matchGroup(sku) {
     const s = String(sku || '').toUpperCase();
     return PREFIXES.find(p => s.startsWith(p.prefix)) || null;
@@ -219,6 +228,7 @@
           charges.set(k, (charges.get(k) || 0) - N(r.total));
           continue;
         }
+        if (isAsin(r.sku) && ASIN_MAP.has(r.sku.toUpperCase())) r.sku = ASIN_MAP.get(r.sku.toUpperCase());
         const rev = N(r.product_sales) + N(r.shipping_credits) + N(r.gift_wrap_credits) + N(r.promotional_rebates);
         const g = matchGroup(r.sku);
         if (!g) { const u = unmatched.get(r.sku) || { units: 0, revenue: 0 }; if (r.type === 'Order') u.units += N(r.qty); u.revenue += rev; unmatched.set(r.sku, u); continue; }
