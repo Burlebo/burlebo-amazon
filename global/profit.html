@@ -301,7 +301,7 @@
       const tot = list.reduce((a, [, v]) => a + v.revenue, 0);
       html += `<div class="sec"><h2>SKUs not in a product group</h2><div class="sub">${list.length} SKUs, ${money(tot)} revenue left out of profit. Add their prefixes to a product group in Settings.</div></div>
         <div class="table-wrap"><table><thead><tr><th>SKU</th><th class="r">Units</th><th class="r">Revenue</th></tr></thead><tbody>
-        ${list.slice(0, 50).map(([k, v]) => `<tr><td class="mono">${esc(k)}</td><td class="r">${fmtN(v.units)}</td><td class="r">${money(v.revenue)}</td></tr>`).join('')}</tbody></table></div>`;
+        ${list.slice(0, 50).map(([k, v]) => `<tr><td class="mono">${esc(k)}${/^B0[A-Z0-9]{8}$/i.test(k) ? ' <span style="color:var(--text-dim);font-family:inherit">· liquidation (ASIN not in current FBA inventory)</span>' : ''}</td><td class="r">${fmtN(v.units)}</td><td class="r">${money(v.revenue)}</td></tr>`).join('')}</tbody></table></div>`;
     }
 
     const converted = results.some(r => MP.market(r.code).currency !== ccy);
