@@ -125,6 +125,49 @@
     return out;
   }
 
+  const STORAGE_RE = /storage fee|long term storage|aged inventory|storage utilization/i;
+  function isMonthlyStorage(type, label) { return STORAGE_RE.test(label || '') || STORAGE_RE.test(type || ''); }
+  function prevMonth(iso) { const d = parseISO(iso); return toISO(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1))); }
+
+  async function storageFor(code, s, e) {
+    // Bills covering months in [s, e] post up to ~6 weeks after it; also look
+    // back far enough to find a recent bill to estimate unbilled months from.
+    const from = prevMonth(prevMonth(s.slice(0, 8) + '01'));
+    const rows = await fetchPaged(() => sb.from('mp_transactions').select('id, posted_date, type, description, total, currency')
+      .eq('marketplace', code).is('sku', null).gte('posted_date', from).lte('posted_date', addDays(e, 45)));
+    const bills = new Map();   // label -> Map(serviceMonth -> amount in display currency)
+    for (const r of rows) {
+      const label = r.description || r.type;
+      if (!isMonthlyStorage(r.type, label)) continue;
+      const svc = prevMonth(r.posted_date.slice(0, 8) + '01');
+      if (!bills.has(label)) bills.set(label, new Map());
+      const m = bills.get(label);
+      m.set(svc, (m.get(svc) || 0) - MP.toDisplay(Number(r.total) || 0, r.currency, r.posted_date));
+    }
+    const out = [];
+    for (const [label, byMonth] of bills) {
+      let amt = 0; const parts = [];
+      const latest = [...byMonth.keys()].sort().pop();
+      for (let mo = s.slice(0, 8) + '01'; mo <= e; mo = nextMonth(mo)) {
+        const share = prorate(mo, s, e);
+        if (!share) continue;
+        if (byMonth.has(mo)) {
+          amt += byMonth.get(mo) * share;
+          parts.push(`${fmtMonth(mo)} bill${share < 1 ? ` (${Math.round(share * 100)}% of month)` : ''}`);
+        } else if (latest && latest < mo && monthsApart(latest, mo) <= 3) {
+          // Not billed yet: assume the same cost per day as the latest bill.
+          const d0 = parseISO(latest), d1 = parseISO(mo);
+          const perDay = byMonth.get(latest) / daysInMonth(d0.getUTCFullYear(), d0.getUTCMonth());
+          amt += perDay * share * daysInMonth(d1.getUTCFullYear(), d1.getUTCMonth());
+          parts.push(`${fmtMonth(mo)} estimated from the ${fmtMonth(latest)} bill (not billed until next month)`);
+        }
+      }
+      if (Math.abs(amt) >= 0.005) out.push({ market: code, label: chargeLabel('', label), amount: amt, detail: parts.join('; ') });
+    }
+    return out;
+  }
+  function monthsApart(a, b) { const x = parseISO(a), y = parseISO(b); return (y.getUTCFullYear() - x.getUTCFullYear()) * 12 + y.getUTCMonth() - x.getUTCMonth(); }
+
   async function computeMarket(code, s, e) {
     const m = MP.market(code);
     const settings = m.settings || {};
@@ -160,6 +203,7 @@
       return x;
     };
     const charges = new Map();
+    const overheadStorage = [];
     let adBilled = 0, fbmOrders = 0, fxEst = 0;
     const shipUSD = N(settings.fbm_ship_cost_per_order);   // entered in USD
 
@@ -170,6 +214,7 @@
         if (r.type === 'Transfer') continue;                          // payouts to the bank
         if (!r.sku) {
           if (/advertis/i.test(r.label || '')) { adBilled -= N(r.total); continue; }
+          if (isMonthlyStorage(r.type, r.label)) continue;           // spread over the month it covers (below)
           const k = chargeLabel(r.type, r.label);
           charges.set(k, (charges.get(k) || 0) - N(r.total));
           continue;
@@ -244,8 +289,13 @@
     if (unattributed && revTotal) for (const x of SKU.values()) x.ads += unattributed * Math.max(0, x.revenue) / revTotal;
     else if (unattributed) charges.set('Ad spend not tied to a product', (charges.get('Ad spend not tied to a product') || 0) + unattributed);
 
+    // Monthly storage bills: Amazon charges each month's storage early the
+    // next month. Count each bill toward the month it covers, prorated by day,
+    // and estimate months not billed yet from the latest bill.
+    for (const line of await storageFor(code, s, e)) overheadStorage.push(line);
+
     // Overhead
-    const overhead = [];
+    const overhead = overheadStorage;
     const agency = agencyFor(code, s, e, terms.data || [], overheadRows.data || [], spByMonth);
     if (agency.amount) overhead.push({ market: code, label: 'Agency', amount: agency.amount, detail: agency.detail });
     for (const o of (overheadRows.data || []).filter(o => o.category === 'dsp_spend')) {
