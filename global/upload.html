@@ -72,7 +72,9 @@
   .missing .ok { color: var(--green); font-size: 13px; font-weight: 600; }
   .missing .none { color: var(--text-dim); font-size: 13px; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip { font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: var(--red-bg); color: var(--red); }
+  .chip { font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: var(--red-bg); color: var(--red); border: 0; font-family: inherit; cursor: pointer; }
+  .chip:hover { outline: 1px solid var(--red); }
+  .missing .tip { font-size: 12px; color: var(--text-dim); margin-top: 8px; }
 
   .uploads { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
   .uploads th, .uploads td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--hairline); white-space: nowrap; }
@@ -1068,7 +1070,8 @@
               if (!have.has(`${m.code}|${kind}|${iso}`)) missing.push(iso);
             }
             body = missing.length
-              ? `<div class="chips">${missing.map(d => `<span class="chip">${fmtShort(d)}</span>`).join('')}</div>`
+              ? `<div class="chips">${missing.map(d => `<button type="button" class="chip" title="Click to mark this day as having no data" onclick="markNoData('${m.code}','${kind}','${d}')">${fmtShort(d)}</button>`).join('')}</div>
+                 <div class="tip">No report for a day because nothing sold? Click the date to mark it as no data.</div>`
               : `<div class="ok">All caught up through ${fmtShort(last)}</div>`;
           }
           html.push(`<div class="box"><h4>${m.flag} ${esc(m.name)}: ${label}</h4>${body}</div>`);
@@ -1078,6 +1081,20 @@
     } catch (e) {
       box.innerHTML = `<div class="msg err">Couldn't check for missing days: ${esc(e.message)}</div>`;
     }
+  }
+
+  // A day with no traffic or sales has no report to download; record it as
+  // checked with zero rows so it stops showing as missing. Undo from Recent uploads.
+  async function markNoData(mk, kind, day) {
+    const m = MP.market(mk);
+    const label = kind === 'business' ? 'Business Report' : 'ads';
+    if (!confirm(`Mark ${fmtDate(day)} as having no ${label} data for ${m.name}?\n\nUse this only when Amazon has no report for that day (no sales or traffic). If a report turns up later, delete this entry in Recent uploads and upload it.`)) return;
+    const { error } = await sb.from('mp_uploads').insert({
+      report_type: kind === 'business' ? 'business' : 'ads', marketplace: mk, report_date: day,
+      filename: 'No data that day (marked)', row_count: 0, status: 'ok', uploaded_by: AuthApp.role,
+    });
+    if (error) { alert('Could not save: ' + error.message); return; }
+    refreshLists();
   }
 
   const TYPE_LABEL = { business: 'Business Report', ads: 'Ads', transactions: 'Transactions', fba_inventory: 'FBA inventory', blb: 'BURLEBO inventory', shipment_sent: 'Shipment sent' };
